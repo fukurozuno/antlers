@@ -1,0 +1,245 @@
+# Antlers
+
+バージョン: `0.1.0`
+
+Antlers は、macOS 向けのキーボードファーストな左右 2 ペイン型ファイラーです。
+キーボードによる素早い移動と、安全なファイル操作を重視しています。
+
+Version: `0.1.0`
+
+Antlers is a keyboard-first, dual-pane file manager for macOS.
+It focuses on fast navigation and safe file operations.
+
+## 目次 / Contents
+
+- [日本語](#日本語)
+- [English](#english)
+
+---
+
+## 日本語
+
+### 特徴
+
+- 左右 2 ペインでコピー元とコピー先を同時に確認
+- キーボード中心のカーソル移動、選択、ペイン切り替え
+- コピー、移動、リネーム、ゴミ箱への移動
+- 履歴、登録パス、パス直接入力によるナビゲーション
+- 複数選択、ワイルドカードマーク、ファイルマスク
+- ファイルのプレビュー、タグ検索、隠しファイル表示
+- 設定画面からのキーバインド変更
+- 複数ストローク入力中のキー候補パネル表示
+- 上書きや破壊的操作に対する確認
+
+### あふw（AFXW）からの影響
+
+Antlers は、あふw（AFXW）の操作感とキーボード中心のファイル操作に
+インスピレーションを受けています。特に、左右 2 ペイン構成と、
+キーボードでファイル整理を素早く行う考え方を参考にしています。
+
+Antlers は独立したプロジェクトであり、あふw（AFXW）の公式な派生物、
+公式な移植版、または関係プロジェクトではありません。
+
+### 動作環境
+
+- macOS 13 以降
+- Apple Silicon 向けバイナリを配布予定
+
+### ダウンロードと起動
+
+現在はバイナリのみを配布しています。ソースコードは将来公開する予定です。
+ダウンロード方法とリリースファイルは、公開時にこの README へ追記します。
+
+### macOS のセキュリティ警告
+
+現在配布している Antlers は、Developer ID によるコード署名および
+Apple の notarization を行っていません。そのため、初回起動時に macOS が
+「開発元を確認できない」などの警告を表示する場合があります。
+
+信頼できる配布元からダウンロードしたことを確認したうえで起動してください。
+起動を許可する場合は、アプリを一度開こうとした後、
+「システム設定」→「プライバシーとセキュリティ」→「このまま開く」を選択します。
+Gatekeeper を無効化する操作は推奨しません。
+
+### 実装済みの主な機能
+
+- 左右 2 ペインのファイル一覧
+- ディレクトリ移動、親ディレクトリ移動、移動履歴
+- 登録パス、場所一覧、パス直接入力
+- カーソル移動、ページ移動、複数選択、範囲選択
+- ファイルとディレクトリのマーク
+- コピー、移動、リネーム、同一ディレクトリ内への別名コピー
+- ゴミ箱への移動（恒久削除ではありません）
+- フォルダ作成、ファイルをデフォルトアプリケーションで開く
+- ファイルの Quick Look プレビュー
+- インクリメンタルサーチ、ワイルドカードマーク、ファイルマスク
+- ファイル名、拡張子、サイズ、更新日時によるソート
+- 隠しファイル表示、ファイルアイコン、色タグ表示
+- タグ検索とタグの設定・解除
+- ペイン情報表示、メッセージ表示
+- 設定画面、キーバインドの記録・変更
+
+### 主要キーバインド
+
+| キー | 操作 |
+| --- | --- |
+| `Tab` | アクティブペインを切り替える |
+| `Left` / `Right` | 左右のペインをアクティブにする |
+| `Up` / `Down` | カーソルを移動する |
+| `PageUp` / `PageDown` | 1 ページ移動する |
+| `Enter` | 選択中のディレクトリへ移動する（設定変更可） |
+| `Backspace` | 親ディレクトリへ移動する |
+| `Space` / `Shift+Space` | 項目をマークし、次または前へ移動する |
+| `C` | マーク済み項目を逆窓へコピーする |
+| `M` | マーク済み項目を逆窓へ移動する |
+| `D` | マーク済み項目をゴミ箱へ移動する |
+| `R` | 選択中項目をリネームする |
+| `Shift+R` | 選択中項目を別名でコピーする |
+| `V` | 選択中ファイルをプレビューする |
+| `F` | インクリメンタルサーチを開始する |
+| `H` | 履歴一覧を表示する |
+| `J` | 登録パス一覧を表示する |
+| `Shift+J` | パス入力欄を表示する |
+| `S` | ソート指定を開始する |
+| `O` / `Shift+O` | 左右ペインのパスを同期する |
+| `Z` / `Command+,` | 設定ウィンドウを開く |
+| `Q` | アプリケーションを終了する |
+
+キーバインドは設定画面から変更できます。複数ストロークのキーバインドにも対応しています。
+
+デフォルトキーバインドの完全な一覧は [KEYBINDINGS.md](KEYBINDINGS.md) を参照してください。
+
+複数ストロークの 1 ストローク目を入力すると、続けて入力できるキーとコマンドの候補を表示できます。候補パネルはキーボード操作を妨げず、マウスで候補をクリックするとそのコマンドを実行します。
+
+### 安全設計
+
+- 削除操作は恒久削除ではなく、ゴミ箱への移動として実行します。
+- コピー、移動、リネームなどのファイル操作は専用サービスを経由します。
+- 上書きが発生する操作は明示的な確認を要求します。
+- UI からファイルシステムを直接操作しません。
+- symlink を明示的な設計なしに再帰的にたどりません。
+
+### ソースコードについて
+
+現在はバイナリのみを配布しています。ソースコードは今後公開する予定です。
+公開時には、ビルド方法、開発環境、テスト方法、コントリビューション方法を追記します。
+
+### ライセンス
+
+Antlers は MIT License の下で公開しています。詳細は [LICENSE](LICENSE) を参照してください。
+
+### 免責事項
+
+重要なファイルを操作する前に、ユーザー自身でバックアップを確認してください。
+本ソフトウェアは現状有姿で提供され、利用によって生じた損害について開発者は責任を負いません。
+
+---
+
+## English
+
+### Features
+
+- Dual-pane layout for viewing source and destination directories together
+- Keyboard-first navigation, selection, and pane switching
+- Copy, move, rename, and move-to-Trash operations
+- Navigation history, bookmarks, and direct path input
+- Multiple selection, wildcard marking, and file masks
+- File preview, tag search, and hidden-file visibility
+- Configurable keybindings
+- Candidate panel for multi-stroke key sequences
+- Confirmation for overwrites and destructive operations
+
+### Inspiration from あふw (AFXW)
+
+Antlers is inspired by the interaction model and keyboard-focused file operations
+of あふw (AFXW), especially its dual-pane layout and fast keyboard-driven workflow.
+
+Antlers is an independent project. It is not an official derivative, port, or
+affiliated project of あふw (AFXW).
+
+### Requirements
+
+- macOS 13 or later
+- Apple Silicon binaries are planned for distribution
+
+### Download and launch
+
+Antlers is currently distributed as binaries only. The source code is planned to
+be released in the future. Download and release information will be added here
+when public distribution begins.
+
+### macOS security warning
+
+The currently distributed version of Antlers is not signed with a Developer ID
+and has not been notarized by Apple. macOS may therefore display a warning such
+as “developer cannot be verified” on first launch.
+
+Only proceed after confirming that you obtained the app from a trusted source.
+If you choose to open it, try launching the app once, then select
+“System Settings” → “Privacy & Security” → “Open Anyway”.
+Disabling Gatekeeper is not recommended.
+
+### Implemented features
+
+- Dual-pane file lists
+- Directory navigation and navigation history
+- Bookmarks, locations, and direct path input
+- Cursor movement, page movement, multiple selection, and range selection
+- File and directory marking
+- Copy, move, rename, and copy with a new name
+- Move to Trash instead of permanent deletion
+- Folder creation and opening items with their default applications
+- Quick Look file preview
+- Incremental search, wildcard marking, and file masks
+- Sorting by name, extension, size, and modification date
+- Hidden files, file icons, and color tag display
+- Tag search and tag editing
+- Pane information, messages, and configurable keybindings
+
+### Keybindings
+
+| Key | Action |
+| --- | --- |
+| `Tab` | Switch the active pane |
+| `Left` / `Right` | Activate the left or right pane |
+| `Up` / `Down` | Move the cursor |
+| `PageUp` / `PageDown` | Move by one page |
+| `Enter` | Open the selected directory (configurable) |
+| `Backspace` | Go to the parent directory |
+| `Space` / `Shift+Space` | Mark an item and move forward or backward |
+| `C` | Copy marked items to the opposite pane |
+| `M` | Move marked items to the opposite pane |
+| `D` | Move marked items to the Trash |
+| `R` | Rename the selected item |
+| `Shift+R` | Copy the selected item with a new name |
+| `V` | Preview the selected file |
+| `F` | Start incremental search |
+| `H` | Show navigation history |
+| `J` | Show bookmarks |
+| `Shift+J` | Show direct path input |
+| `S` | Start sort selection |
+| `O` / `Shift+O` | Synchronize pane paths |
+| `Z` / `Command+,` | Open Settings |
+| `Q` | Quit the application |
+
+Keybindings can be changed in Settings, including multi-stroke bindings.
+
+See [KEYBINDINGS.md](KEYBINDINGS.md) for the complete list of default keybindings.
+
+After the first stroke of a multi-stroke sequence, Antlers can show the remaining keys and command candidates. The candidate panel does not take keyboard focus; clicking a candidate with the mouse executes that command.
+
+### Source code
+
+Antlers is currently distributed as binaries only. The source code is planned
+to be released in the future. Build, development, testing, and contribution
+instructions will be added when the source is published.
+
+### License
+
+Antlers is released under the MIT License. See [LICENSE](LICENSE) for details.
+
+### Disclaimer
+
+Please make sure that important files are backed up before performing file
+operations. This software is provided “as is”; the developer is not responsible
+for damage resulting from its use.
