@@ -1,0 +1,363 @@
+import XCTest
+@testable import MafxCore
+
+final class KeyBindingTests: XCTestCase {
+    func testDefaultControlReturnOpensWithConfiguredApplication() {
+        let resolver = KeymapResolver(keyBindingSet: .default)
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "Return", modifiers: .control)),
+            .matched(.openWithConfiguredApplication)
+        )
+    }
+
+    func testResolverWaitsForSecondStrokeAndResolvesSequence() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "S")),
+            .awaitingNextStroke(
+                PendingKeySequence(strokes: [KeyStroke(key: "S")])
+            )
+        )
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "F")), .matched(.sortByName))
+    }
+
+    func testResolverResolvesSingleStrokeCommand() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "C")), .matched(.copyMarkedItems))
+    }
+
+    func testResolverResolvesClipboardCopySequences() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "P")), .awaitingNextStroke(PendingKeySequence(strokes: [KeyStroke(key: "P")])))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "1")), .matched(.copyFileNamesToClipboard))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "P")), .awaitingNextStroke(PendingKeySequence(strokes: [KeyStroke(key: "P")])))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "2")), .matched(.copyDirectoryPathsToClipboard))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "P")), .awaitingNextStroke(PendingKeySequence(strokes: [KeyStroke(key: "P")])))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "3")), .matched(.copyFullPathsToClipboard))
+    }
+
+    func testResolverResolvesCommandReturnAsOpenSelectedItem() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "Return", modifiers: .command)),
+            .matched(.openSelectedItem)
+        )
+    }
+
+    func testUnmodifiedReturnIsNotInDefaultKeyBindings() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openSelectedDirectory), [])
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "Return")), .unmatched)
+    }
+
+    func testReservingUnmodifiedReturnKeepsModifiedReturnAndOtherBindings() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .openSelectedDirectory, sequences: [
+                .init(.init(key: "Return")),
+                .init(.init(key: "Return", modifiers: .option)),
+                .init(.init(key: "G"))
+            ]),
+            KeyBindingEntry(commandID: .previewSelectedFile, sequences: [.init(.init(key: "Return"))])
+        ])
+
+        let reserved = set.reservingUnmodifiedReturn()
+
+        XCTAssertEqual(
+            reserved.sequences(for: .openSelectedDirectory),
+            [.init(.init(key: "Return", modifiers: .option)), .init(.init(key: "G"))]
+        )
+        XCTAssertEqual(reserved.sequences(for: .previewSelectedFile), [])
+    }
+
+    func testResolverResolvesDAsTrashMarkedItems() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "D")), .matched(.trashMarkedItems))
+    }
+
+    func testResolverResolvesVAsPreviewSelectedFile() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "V")), .matched(.previewSelectedFile))
+    }
+
+    func testPreviewKeymapResolverResolvesQAsEndPreview() {
+        let resolver = PreviewKeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "Q")), .endPreview)
+        XCTAssertNil(resolver.resolve(KeyStroke(key: "Q", modifiers: .command)))
+    }
+
+    func testResolverResolvesShiftRAsCopySelectedItemWithNewName() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "R", modifiers: .shift)),
+            .matched(.copySelectedItemWithNewName)
+        )
+    }
+
+    func testResolverResolvesTAsTagFilterList() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "T")), .matched(.showTagFilterList))
+    }
+
+    func testResolverResolvesShiftTAsTagEditList() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "T", modifiers: .shift)),
+            .matched(.showTagEditList)
+        )
+    }
+
+    func testResolverResolvesShiftJAsDirectPathInput() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "J", modifiers: .shift)),
+            .matched(.beginDirectPathInput)
+        )
+    }
+
+    func testResolverResolvesIAsShowSelectedItemInfo() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "I")), .matched(.showSelectedItemInfo))
+    }
+
+    func testToggleHiddenFilesHasNoDefaultBinding() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .toggleHiddenFiles), [])
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: ".")), .unmatched)
+    }
+
+    func testResolverResolvesCustomToggleHiddenFilesBinding() {
+        var set = KeyBindingSet.default
+        set.addSequence(KeyBindingSequence(KeyStroke(key: ".", modifiers: .command)), to: .toggleHiddenFiles)
+        let resolver = KeymapResolver(keyBindingSet: set)
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: ".", modifiers: .command)),
+            .matched(.toggleHiddenFiles)
+        )
+    }
+
+    func testResolverResolvesEndAsClearMarkedItems() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "End")), .matched(.clearMarkedItems))
+    }
+
+    func testResolverResolvesPageUpAndPageDownAsPageSelectionMovement() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "PageUp")), .matched(.moveSelectionPageUp))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "PageDown")), .matched(.moveSelectionPageDown))
+    }
+
+    func testResolverResolvesControlSpaceAsMarkRangeFromPreviousMarkedItem() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "Space", modifiers: .control)),
+            .matched(.markRangeFromPreviousMarkedItem)
+        )
+    }
+
+    func testResolverResolvesUnderscoreAsShowContextMenu() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "_")), .matched(.showContextMenu))
+    }
+
+    func testResolverResolvesShiftUnderscoreAsShowContextMenu() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "_", modifiers: .shift)),
+            .matched(.showContextMenu)
+        )
+    }
+
+    func testResolverResolvesMultipleSimultaneousModifiers() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(
+                commandID: .copyMarkedItems,
+                sequences: [.init(.init(key: "C", modifiers: [.control, .option, .shift, .command]))]
+            )
+        ])
+        let resolver = KeymapResolver(keyBindingSet: set)
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "C", modifiers: [.control, .option, .shift, .command])),
+            .matched(.copyMarkedItems)
+        )
+    }
+
+    func testKeyStrokeDisplayTextShowsMultipleModifiers() {
+        let stroke = KeyStroke(key: "C", modifiers: [.control, .option, .shift, .command])
+
+        XCTAssertEqual(stroke.displayText, "Control+Option+Shift+Command+C")
+    }
+
+    func testResolverClearsPendingStrokesAfterUnmatchedSequence() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "S")),
+            .awaitingNextStroke(
+                PendingKeySequence(strokes: [KeyStroke(key: "S")])
+            )
+        )
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "X")), .unmatched)
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "C")), .matched(.copyMarkedItems))
+    }
+
+    func testResolverReportsPendingSequenceDisplayText() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(
+                commandID: .copyMarkedItems,
+                sequences: [.init([.init(key: "G"), .init(key: "C")])]
+            )
+        ])
+        let resolver = KeymapResolver(keyBindingSet: set)
+
+        let resolution = resolver.resolve(KeyStroke(key: "G"))
+
+        XCTAssertEqual(
+            resolution,
+            .awaitingNextStroke(
+                PendingKeySequence(strokes: [KeyStroke(key: "G")])
+            )
+        )
+        guard case .awaitingNextStroke(let pendingSequence) = resolution else {
+            return XCTFail("2ストローク目待機になること")
+        }
+        XCTAssertEqual(pendingSequence.displayText, "G")
+    }
+
+    func testResolverReturnsCandidatesForPendingSequence() {
+        let resolver = KeymapResolver()
+        let pendingSequence = PendingKeySequence(strokes: [KeyStroke(key: "S")])
+
+        XCTAssertEqual(
+            resolver.candidates(for: pendingSequence),
+            [
+                KeyBindingCandidate(commandID: .sortBySize, remainingStrokes: [KeyStroke(key: "S")]),
+                KeyBindingCandidate(commandID: .sortByExtension, remainingStrokes: [KeyStroke(key: "E")]),
+                KeyBindingCandidate(commandID: .sortByName, remainingStrokes: [KeyStroke(key: "F")]),
+                KeyBindingCandidate(commandID: .sortByModificationDate, remainingStrokes: [KeyStroke(key: "T")])
+            ]
+        )
+    }
+
+    func testResolverReturnsAllRemainingStrokesForLongCandidate() {
+        let resolver = KeymapResolver(keyBindingSet: KeyBindingSet(entries: [
+            KeyBindingEntry(
+                commandID: .copyMarkedItems,
+                sequences: [.init([.init(key: "G"), .init(key: "C"), .init(key: "X")])]
+            )
+        ]))
+
+        XCTAssertEqual(
+            resolver.candidates(for: PendingKeySequence(strokes: [KeyStroke(key: "G")])),
+            [KeyBindingCandidate(commandID: .copyMarkedItems, remainingStrokes: [KeyStroke(key: "C"), KeyStroke(key: "X")])]
+        )
+    }
+
+    func testKeyBindingSetDetectsDuplicateConflicts() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [.init(.init(key: "C"))]),
+            KeyBindingEntry(commandID: .moveMarkedItems, sequences: [.init(.init(key: "C"))])
+        ])
+
+        XCTAssertEqual(set.conflicts(), [
+            KeyBindingConflict(
+                kind: .duplicate,
+                firstCommandID: .copyMarkedItems,
+                secondCommandID: .moveMarkedItems,
+                sequence: KeyBindingSequence(KeyStroke(key: "C"))
+            )
+        ])
+    }
+
+    func testKeyBindingSetDetectsPrefixConflicts() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [.init(.init(key: "S"))]),
+            KeyBindingEntry(commandID: .sortByName, sequences: [.init([.init(key: "S"), .init(key: "F")])])
+        ])
+
+        XCTAssertEqual(set.conflicts(), [
+            KeyBindingConflict(
+                kind: .prefix,
+                firstCommandID: .copyMarkedItems,
+                secondCommandID: .sortByName,
+                sequence: KeyBindingSequence(KeyStroke(key: "S"))
+            )
+        ])
+    }
+
+    func testKeyBindingSetDetectsJumpPathListBindingAsPrefixConflict() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .showJumpPathList, sequences: [.init(.init(key: "J"))]),
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [.init([.init(key: "J"), .init(key: "1")])])
+        ])
+
+        XCTAssertEqual(set.conflicts(), [
+            KeyBindingConflict(
+                kind: .prefix,
+                firstCommandID: .showJumpPathList,
+                secondCommandID: .copyMarkedItems,
+                sequence: KeyBindingSequence(KeyStroke(key: "J"))
+            )
+        ])
+    }
+
+    func testKeyBindingSetTreatsDifferentModifierCombinationsAsDifferentBindings() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [
+                .init(.init(key: "C", modifiers: [.control, .option]))
+            ]),
+            KeyBindingEntry(commandID: .moveMarkedItems, sequences: [
+                .init(.init(key: "C", modifiers: [.control, .shift]))
+            ])
+        ])
+
+        XCTAssertEqual(set.conflicts(), [])
+    }
+
+    func testResetCommandToDefaultRestoresDefaultBindings() {
+        var set = KeyBindingSet.default
+        set.setSequences([KeyBindingSequence(KeyStroke(key: "X"))], for: .copyMarkedItems)
+
+        set.resetCommandToDefault(.copyMarkedItems)
+
+        XCTAssertEqual(set.sequences(for: .copyMarkedItems), KeyBindingSet.default.sequences(for: .copyMarkedItems))
+    }
+
+    func testFillingMissingDefaultEntriesPreservesCustomBindingsAndAddsMissingCommands() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [.init(.init(key: "X"))])
+        ])
+
+        let merged = set.fillingMissingDefaultEntries()
+
+        XCTAssertEqual(merged.sequences(for: .copyMarkedItems), [.init(.init(key: "X"))])
+        XCTAssertEqual(merged.sequences(for: .showTagFilterList), [.init(.init(key: "T"))])
+        XCTAssertEqual(merged.sequences(for: .showTagEditList), [.init(.init(key: "T", modifiers: .shift))])
+        XCTAssertEqual(merged.sequences(for: .beginDirectPathInput), [.init(.init(key: "J", modifiers: .shift))])
+        XCTAssertEqual(merged.sequences(for: .showSelectedItemInfo), [.init(.init(key: "I"))])
+        XCTAssertEqual(merged.sequences(for: .trashMarkedItems), [.init(.init(key: "D"))])
+        XCTAssertEqual(merged.sequences(for: .openSelectedItem), [.init(.init(key: "Return", modifiers: .command))])
+        XCTAssertEqual(merged.sequences(for: .toggleHiddenFiles), [])
+    }
+}

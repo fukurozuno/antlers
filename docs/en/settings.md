@@ -9,6 +9,20 @@ Press `Z` or `Command+,` to open Settings. You can change startup locations, act
 
 ![Settings window (Japanese UI)](../assets/screenshots/settings-window.png)
 
+## General
+
+General settings include the app language, Return key behavior, incremental search matching, and startup locations for the left and right panes.
+
+Return key behavior applies only to unmodified `Return` in the main pane. By default it opens the selected directory, but it can also preview files while opening directories, or do nothing.
+
+Incremental search can use prefix, contains, or exact matching.
+
+## Operations and confirmations
+
+Confirmations for copy, move, move to Trash, and quit can be toggled individually. You can also set the number of file-operation detail log entries. Use `0` to show all entries.
+
+Operation behavior settings include moving the cursor after marking, entering newly created folders, and selecting the previous directory after moving to the parent directory.
+
 ## Built-in themes
 
 Choose from Light, Dark, Dracula, Nord, Solarized Light, and Solarized Dark. Switch the file-list background, text colors, and accent colors to suit your environment.
@@ -26,6 +40,10 @@ Choose from Light, Dark, Dracula, Nord, Solarized Light, and Solarized Dark. Swi
 You can also adjust display colors to create your own theme, including colors for the selected row, marked rows, and message area.
 
 ![Custom theme example](../assets/screenshots/theme-custom.png)
+
+## File type settings
+
+For each file extension, you can configure an application and a list color. Files with a configured application can be opened with that application using the default `Control+Return` shortcut.
 
 ## Zebra rows
 

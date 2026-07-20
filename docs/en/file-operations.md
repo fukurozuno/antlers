@@ -15,6 +15,10 @@ When items are marked, actions apply to the marked items; otherwise they apply t
 | `R` | Rename the selected item |
 | `Shift+R` | Copy with a new name in the same directory |
 | `K` | Create a folder in the current directory |
+| `P, 1` | Copy file names to the clipboard |
+| `P, 2` | Copy parent directory paths to the clipboard |
+| `P, 3` | Copy full paths to the clipboard |
+| `_` / `Shift+_` | Show the context menu |
 
 ## Confirm before copying
 
@@ -23,3 +27,9 @@ Before copying, you can review the item count, destination, and source paths. Se
 ![Copy confirmation dialog (Japanese UI)](../assets/screenshots/copy-dialog.png)
 
 Potential overwrites require explicit confirmation. Deleting moves items to Trash rather than permanently deleting them. See [Safe operations](safety.md).
+
+## Clipboard and context menu
+
+Use `P, 1`, `P, 2`, and `P, 3` to copy file names, parent directory paths, or full paths as multi-line text. Targets follow the same rule as file operations: marked items when present, otherwise the selected item.
+
+Use `_` or `Shift+_` to show the context menu. The menu provides Open, Open With, Reveal in Finder, Copy Path, Copy, Move, Rename, Copy with New Name, and Create Folder.
