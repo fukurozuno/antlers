@@ -24,4 +24,8 @@ Antlers は、キーボードで素早く操作できる macOS 用の左右 2 �
 - [設定と外観](settings.md)
 - [キーバインド](keybindings.md)
 
+## リリースノート
+
+- [V0.2.0](releases/v0.2.0.md)
+
 [English manual](../en/)
