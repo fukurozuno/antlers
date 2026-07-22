@@ -18,6 +18,7 @@ Use `Space` to mark the item at the cursor. By default, the cursor then advances
 ## Navigate quickly
 
 - `J`: show bookmarks
+- In the bookmark list, use `1` through `9` and `0` to choose the first ten entries
 - `Shift+J`: enter a path directly
 - `H`: show the active pane's history
 - `O`: set the active pane to the opposite pane's path

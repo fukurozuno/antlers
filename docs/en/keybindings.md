@@ -18,6 +18,11 @@ Press `Z` or `Command+,`, then open **Keybindings** to review and change shortcu
 | `C` / `M` / `D` | Copy / move / move to Trash |
 | `F` | Start incremental search |
 | `V` | Preview the selected file |
+| `Control+Return` | Open with the configured application |
+| `P, 1` / `P, 2` / `P, 3` | Copy file names / parent directory paths / full paths |
+| `_` / `Shift+_` | Show the context menu |
 | `S, S` / `S, E` / `S, F` / `S, T` | Sort by size / extension / name / modification date |
 
 Identical or prefix-overlapping sequences conflict. Resolve conflicts before applying the settings. After entering the first stroke of a multi-stroke sequence, Antlers can show available next keys and command candidates.
+
+Unmodified `Return` is not a regular keybinding. It is controlled by the General "Return key behavior" setting. Function keys can be recorded and assigned like normal key sequences.
