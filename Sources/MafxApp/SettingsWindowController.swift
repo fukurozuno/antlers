@@ -8,7 +8,7 @@ func canApplyKeyBindingSet(_ keyBindingSet: KeyBindingSet) -> Bool {
 
 enum SettingsListEditorValue: Equatable {
     case bookmark(displayName: String, path: String)
-    case fileType(extensions: String, applicationPath: String, color: DisplayColor?)
+    case fileType(extensions: String, isOtherExtensions: Bool, applicationPath: String, color: DisplayColor?)
 }
 
 func hasUnappliedSettingsListEditorChanges(
@@ -123,6 +123,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     private let themePreviewView = ThemePreviewView()
     private let pathEditorStack = NSStackView()
     private let fileTypeExtensionsField = NSTextField(string: "")
+    private let fileTypeOtherExtensionsButton = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let fileTypeApplicationField = NSTextField(string: "")
     private let chooseFileTypeApplicationButton = NSButton(title: "", target: nil, action: nil)
     private let fileTypeUsesColorButton = NSButton(checkboxWithTitle: "", target: nil, action: nil)
@@ -297,6 +298,8 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         chooseFileTypeApplicationButton.action = #selector(chooseFileTypeApplication(_:))
         fileTypeUsesColorButton.target = self
         fileTypeUsesColorButton.action = #selector(fileTypeColorChanged(_:))
+        fileTypeOtherExtensionsButton.target = self
+        fileTypeOtherExtensionsButton.action = #selector(fileTypeOtherExtensionsChanged(_:))
         fileTypeColorWell.target = self
         fileTypeColorWell.action = #selector(fileTypeColorChanged(_:))
         fileTypeColorScopePopup.target = self
@@ -310,6 +313,8 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         pathEditorStack.orientation = .vertical
         pathEditorStack.spacing = 8
         pathEditorStack.translatesAutoresizingMaskIntoConstraints = false
+
+        fileTypeOtherExtensionsButton.translatesAutoresizingMaskIntoConstraints = false
 
         pathEditorStack.addArrangedSubview(pathFieldStack)
 
@@ -386,6 +391,12 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         appearanceEditorStack.addArrangedSubview(foregroundRow)
         pathEditorStack.addArrangedSubview(appearanceEditorStack)
 
+        let fileTypeMatchRow = NSStackView(views: [fileTypeExtensionsField, fileTypeOtherExtensionsButton])
+        fileTypeMatchRow.orientation = .horizontal
+        fileTypeMatchRow.distribution = .fill
+        fileTypeMatchRow.spacing = 8
+        fileTypeOtherExtensionsButton.setContentHuggingPriority(.required, for: .horizontal)
+
         let fileTypeApplicationRow = NSStackView(views: [fileTypeApplicationField, chooseFileTypeApplicationButton])
         fileTypeApplicationRow.orientation = .horizontal
         fileTypeApplicationRow.spacing = 8
@@ -396,7 +407,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         fileTypeColorScopeRow.orientation = .horizontal
         fileTypeColorScopeRow.spacing = 8
         let fileTypeEditorStack = NSStackView(views: [
-            fileTypeExtensionsField,
+            fileTypeMatchRow,
             fileTypeApplicationRow,
             fileTypeColorRow,
             fileTypeColorScopeRow
@@ -766,7 +777,9 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         dataSource.confirmsBeforeMove = state.confirmsBeforeMove
         dataSource.confirmsBeforeTrash = state.confirmsBeforeTrash
         dataSource.confirmsBeforeQuit = state.confirmsBeforeQuit
+        dataSource.allowsExternalFileDrag = state.allowsExternalFileDrag
         dataSource.fileOperationDetailLogLimit = state.fileOperationDetailLogLimit
+        dataSource.fileListFontSize = state.fileListFontSize
         dataSource.appLanguage = state.appLanguage
         dataSource.returnKeyBehavior = state.returnKeyBehavior
         dataSource.incrementalSearchMatchMode = state.incrementalSearchMatchMode
@@ -795,6 +808,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         }
         fileTypeEditorStack?.isHidden = !isFileTypesTabSelected
         fileTypeExtensionsField.isHidden = !isFileTypesTabSelected
+        fileTypeOtherExtensionsButton.isHidden = !isFileTypesTabSelected
         fileTypeApplicationField.isHidden = !isFileTypesTabSelected
         chooseFileTypeApplicationButton.isHidden = !isFileTypesTabSelected
         fileTypeUsesColorButton.isHidden = !isFileTypesTabSelected
@@ -876,6 +890,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         pathNameField.placeholderString = L10n.string("settings.placeholder.displayName")
         pathField.placeholderString = L10n.string("settings.placeholder.path")
         fileTypeExtensionsField.placeholderString = L10n.string("settings.placeholder.extensions")
+        fileTypeOtherExtensionsButton.title = L10n.string("settings.checkbox.fileTypeOtherExtensions")
         fileTypeApplicationField.placeholderString = L10n.string("settings.placeholder.application")
         chooseFileTypeApplicationButton.title = L10n.string("settings.button.chooseApplication")
         fileTypeUsesColorButton.title = L10n.string("settings.checkbox.useFileTypeColor")
@@ -937,8 +952,16 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             userInfo[SettingsNotificationKey.confirmsBeforeQuit] = newState.confirmsBeforeQuit
         }
 
+        if oldState.allowsExternalFileDrag != newState.allowsExternalFileDrag {
+            userInfo[SettingsNotificationKey.allowsExternalFileDrag] = newState.allowsExternalFileDrag
+        }
+
         if oldState.fileOperationDetailLogLimit != newState.fileOperationDetailLogLimit {
             userInfo[SettingsNotificationKey.fileOperationDetailLogLimit] = newState.fileOperationDetailLogLimit
+        }
+
+        if oldState.fileListFontSize != newState.fileListFontSize {
+            userInfo[SettingsNotificationKey.fileListFontSize] = newState.fileListFontSize
         }
 
         if oldState.appLanguage != newState.appLanguage {
@@ -1170,6 +1193,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             ]
         } else if isPathTabSelected {
             targetIdentifiers = [
+                SettingsDataSource.Column.bookmarkShortcut,
                 SettingsDataSource.Column.bookmarkName,
                 SettingsDataSource.Column.bookmarkPath
             ]
@@ -1199,6 +1223,13 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             addTableColumn(identifier: SettingsDataSource.Column.status, title: L10n.string("settings.column.status"), width: 110)
         } else if isPathTabSelected {
             tableView.headerView = NSTableHeaderView()
+            addTableColumn(
+                identifier: SettingsDataSource.Column.bookmarkShortcut,
+                title: L10n.string("settings.column.shortcut"),
+                width: 44,
+                minWidth: 44,
+                resizingMask: []
+            )
             addTableColumn(identifier: SettingsDataSource.Column.bookmarkName, title: L10n.string("settings.column.name"), width: 180)
             addTableColumn(identifier: SettingsDataSource.Column.bookmarkPath, title: L10n.string("settings.column.path"), width: 380)
         } else if isFileTypesTabSelected {
@@ -1227,13 +1258,15 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     private func addTableColumn(
         identifier: NSUserInterfaceItemIdentifier,
         title: String,
-        width: CGFloat
+        width: CGFloat,
+        minWidth: CGFloat = 80,
+        resizingMask: NSTableColumn.ResizingOptions = .autoresizingMask
     ) {
         let column = NSTableColumn(identifier: identifier)
         column.title = title
         column.width = width
-        column.minWidth = 80
-        column.resizingMask = .autoresizingMask
+        column.minWidth = minWidth
+        column.resizingMask = resizingMask
         tableView.addTableColumn(column)
     }
 
@@ -1328,9 +1361,19 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             state.setToggle(.confirmBeforeQuit, isOn: confirmsBeforeQuit)
         }
 
+        if let allowsExternalFileDrag = notification.userInfo?[SettingsNotificationKey.allowsExternalFileDrag] as? Bool {
+            committedState.setToggle(.allowExternalFileDrag, isOn: allowsExternalFileDrag)
+            state.setToggle(.allowExternalFileDrag, isOn: allowsExternalFileDrag)
+        }
+
         if let fileOperationDetailLogLimit = notification.userInfo?[SettingsNotificationKey.fileOperationDetailLogLimit] as? Int {
             committedState.setNumericValue(fileOperationDetailLogLimit, for: .fileOperationDetailLogLimit)
             state.setNumericValue(fileOperationDetailLogLimit, for: .fileOperationDetailLogLimit)
+        }
+
+        if let fileListFontSize = notification.userInfo?[SettingsNotificationKey.fileListFontSize] as? Int {
+            committedState.setNumericValue(fileListFontSize, for: .fileListFontSize)
+            state.setNumericValue(fileListFontSize, for: .fileListFontSize)
         }
 
         if let leftStartupPathMode = notification.userInfo?[SettingsNotificationKey.leftStartupPathMode] as? StartupPathMode {
@@ -1398,6 +1441,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         if isFileTypesTabSelected {
             return .fileType(
                 extensions: fileTypeExtensionsField.stringValue,
+                isOtherExtensions: fileTypeOtherExtensionsButton.state == .on,
                 applicationPath: fileTypeApplicationField.stringValue,
                 color: fileTypeUsesColorButton.state == .on ? fileTypeColorWell.color.displayColor : nil
             )
@@ -1415,11 +1459,12 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         }
         if isFileTypesTabSelected {
             guard state.fileTypeAssociations.indices.contains(state.focusedItemIndex) else {
-                return .fileType(extensions: "", applicationPath: "", color: nil)
+                return .fileType(extensions: "", isOtherExtensions: false, applicationPath: "", color: nil)
             }
             let association = state.fileTypeAssociations[state.focusedItemIndex]
             return .fileType(
                 extensions: association.extensionsText,
+                isOtherExtensions: association.isOtherExtensionsAssociation,
                 applicationPath: association.applicationPath,
                 color: association.color.map { $0.nsColor.displayColor }
             )
@@ -1432,7 +1477,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             return 118
         }
         if isFileTypesTabSelected {
-            return 160
+            return 190
         }
         if isThemeTabSelected {
             return 148
@@ -1612,6 +1657,8 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     private func populateFileTypeEditorFromFocusedRow() {
         guard state.fileTypeAssociations.indices.contains(state.focusedItemIndex) else {
             fileTypeExtensionsField.stringValue = ""
+            fileTypeOtherExtensionsButton.state = .off
+            fileTypeExtensionsField.isEnabled = true
             fileTypeApplicationField.stringValue = ""
             fileTypeUsesColorButton.state = .off
             fileTypeColorWell.isEnabled = false
@@ -1619,6 +1666,8 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         }
         let association = state.fileTypeAssociations[state.focusedItemIndex]
         fileTypeExtensionsField.stringValue = association.extensionsText
+        fileTypeOtherExtensionsButton.state = association.isOtherExtensionsAssociation ? .on : .off
+        fileTypeExtensionsField.isEnabled = !association.isOtherExtensionsAssociation
         fileTypeApplicationField.stringValue = association.applicationPath
         fileTypeUsesColorButton.state = association.color == nil ? .off : .on
         fileTypeColorWell.isEnabled = association.color != nil
@@ -1638,6 +1687,14 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         fileTypeColorWell.isEnabled = fileTypeUsesColorButton.state == .on
     }
 
+    @objc private func fileTypeOtherExtensionsChanged(_ sender: NSButton) {
+        let isOtherExtensions = sender.state == .on
+        fileTypeExtensionsField.isEnabled = !isOtherExtensions
+        if isOtherExtensions {
+            fileTypeExtensionsField.stringValue = ""
+        }
+    }
+
     @objc private func fileTypeColorScopeChanged(_ sender: NSPopUpButton) {
         guard let rawValue = sender.selectedItem?.representedObject as? String,
               let scope = FileTypeColorScope(rawValue: rawValue) else { return }
@@ -1645,6 +1702,12 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     }
 
     private func fileTypeAssociationFromEditor() -> FileTypeAssociation? {
+        if fileTypeOtherExtensionsButton.state == .on {
+            return .other(
+                applicationPath: fileTypeApplicationField.stringValue,
+                color: fileTypeUsesColorButton.state == .on ? fileTypeColorWell.color.displayColor : nil
+            )
+        }
         let extensions = FileTypeAssociation.normalizedExtensions([fileTypeExtensionsField.stringValue])
         guard !extensions.isEmpty else { return nil }
         return FileTypeAssociation(
@@ -1661,6 +1724,12 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             showDuplicateFileTypeExtensionsAlert(duplicates)
             return
         }
+        guard !FileTypeAssociation.hasDuplicateOtherExtensionsAssociation(
+            in: state.fileTypeAssociations + [association]
+        ) else {
+            showDuplicateFileTypeOtherExtensionsAlert()
+            return
+        }
         state.addFileTypeAssociation(association)
         state.focusFileTypeAssociation(at: state.fileTypeAssociations.count - 1)
         render()
@@ -1672,6 +1741,12 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         let duplicates = duplicateFileTypeExtensions(afterReplacingFocusedAssociationWith: association)
         guard duplicates.isEmpty else {
             showDuplicateFileTypeExtensionsAlert(duplicates)
+            return
+        }
+        var updatedAssociations = state.fileTypeAssociations
+        updatedAssociations[state.focusedItemIndex] = association
+        guard !FileTypeAssociation.hasDuplicateOtherExtensionsAssociation(in: updatedAssociations) else {
+            showDuplicateFileTypeOtherExtensionsAlert()
             return
         }
         state.updateFileTypeAssociation(at: state.focusedItemIndex, with: association)
@@ -1698,6 +1773,13 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
                 "settings.alert.fileTypeExtensionConflict.message",
                 extensions.joined(separator: ", ")
             )
+        )
+    }
+
+    private func showDuplicateFileTypeOtherExtensionsAlert() {
+        showErrorAlert(
+            title: L10n.string("settings.alert.fileTypeOtherExtensionsConflict.title"),
+            message: L10n.string("settings.alert.fileTypeOtherExtensionsConflict.message")
         )
     }
 
@@ -2163,6 +2245,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         static let command = NSUserInterfaceItemIdentifier("command")
         static let bindings = NSUserInterfaceItemIdentifier("bindings")
         static let status = NSUserInterfaceItemIdentifier("status")
+        static let bookmarkShortcut = NSUserInterfaceItemIdentifier("bookmarkShortcut")
         static let bookmarkName = NSUserInterfaceItemIdentifier("bookmarkName")
         static let bookmarkPath = NSUserInterfaceItemIdentifier("bookmarkPath")
         static let fileTypeExtensions = NSUserInterfaceItemIdentifier("fileTypeExtensions")
@@ -2189,7 +2272,9 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     var confirmsBeforeMove = true
     var confirmsBeforeTrash = true
     var confirmsBeforeQuit = true
+    var allowsExternalFileDrag = false
     var fileOperationDetailLogLimit = 10
+    var fileListFontSize = FileListFontSize.standard
     var appLanguage: AppLanguage = .system
     var returnKeyBehavior: ReturnKeyBehavior = .openSelectedDirectory
     var incrementalSearchMatchMode: IncrementalSearchMatchMode = .prefix
@@ -2328,12 +2413,18 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         let entry = jumpPathEntries[row]
 
         switch tableColumn?.identifier {
+        case Column.bookmarkShortcut:
+            textField.stringValue = Self.jumpPathShortcutText(for: row)
+            textField.alignment = .center
         case Column.bookmarkName:
             textField.stringValue = entry.displayName
+            textField.alignment = .natural
         case Column.bookmarkPath:
             textField.stringValue = entry.path
+            textField.alignment = .natural
         default:
             textField.stringValue = ""
+            textField.alignment = .natural
         }
         textField.font = .systemFont(ofSize: 13)
         textField.lineBreakMode = .byTruncatingTail
@@ -2352,6 +2443,17 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         return cell
     }
 
+    private static func jumpPathShortcutText(for row: Int) -> String {
+        switch row {
+        case 0...8:
+            return String(row + 1)
+        case 9:
+            return "0"
+        default:
+            return ""
+        }
+    }
+
     private func fileTypeCell(
         tableView: NSTableView,
         tableColumn: NSTableColumn?,
@@ -2364,7 +2466,9 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
 
         switch tableColumn?.identifier {
         case Column.fileTypeExtensions:
-            textField.stringValue = association.extensionsText
+            textField.stringValue = association.isOtherExtensionsAssociation
+                ? L10n.string("settings.fileTypes.otherExtensions")
+                : association.extensionsText
         case Column.fileTypeApplication:
             textField.stringValue = association.applicationPath.isEmpty
                 ? L10n.string("settings.unset")
@@ -2600,6 +2704,8 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
             return confirmsBeforeTrash ? .on : .off
         case .confirmBeforeQuit:
             return confirmsBeforeQuit ? .on : .off
+        case .allowExternalFileDrag:
+            return allowsExternalFileDrag ? .on : .off
         case nil:
             return .off
         }
@@ -2720,6 +2826,11 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
             textField.placeholderString = L10n.string("settings.help.fileOperationDetailLogLimit")
             textField.isEnabled = true
             textField.isHidden = false
+        case .fileListFontSize:
+            textField.stringValue = "\(fileListFontSize)"
+            textField.placeholderString = L10n.string("settings.help.fileListFontSize")
+            textField.isEnabled = true
+            textField.isHidden = false
         }
     }
 
@@ -2732,6 +2843,9 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         switch numericID {
         case .fileOperationDetailLogLimit:
             textField.stringValue = L10n.string("settings.help.fileOperationDetailLogLimit")
+            textField.isHidden = false
+        case .fileListFontSize:
+            textField.stringValue = L10n.string("settings.help.fileListFontSize")
             textField.isHidden = false
         }
     }

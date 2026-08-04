@@ -22,6 +22,7 @@ final class PortableSettingsServiceTests: XCTestCase {
             confirmsBeforeTrash: false,
             confirmsBeforeQuit: false,
             fileOperationDetailLogLimit: 0,
+            fileListFontSize: 18,
             appLanguage: .english,
             returnKeyBehavior: .previewFileOrOpenDirectory,
             incrementalSearchMatchMode: .contains,
@@ -83,6 +84,61 @@ final class PortableSettingsServiceTests: XCTestCase {
         XCTAssertNotNil(exportedText)
         XCTAssertTrue(exportedText?.contains(#""format" : "antlers-settings""#) == true)
         XCTAssertFalse(exportedText?.contains(#""format" : "mafx-settings""#) == true)
+        XCTAssertTrue(exportedText?.contains(#""schemaVersion" : 2"#) == true)
+    }
+
+    func testImportVersionOneFileTypeAssociationsAsConcreteExtensions() throws {
+        let json = """
+        {
+          "format": "antlers-settings",
+          "schemaVersion": 1,
+          "settings": {
+            "fileTypeAssociations": [
+              { "id": "00000000-0000-0000-0000-000000000001", "extensions": ["txt"], "applicationPath": "", "color": null }
+            ]
+          }
+        }
+        """
+
+        let imported = try service.importSettingsState(from: Data(json.utf8))
+
+        XCTAssertEqual(imported.fileTypeAssociations.map(\.extensions), [["txt"]])
+        XCTAssertFalse(imported.fileTypeAssociations[0].matchesOtherExtensions)
+    }
+
+    func testImportVersionTwoOtherFileTypeAssociation() throws {
+        let json = """
+        {
+          "format": "antlers-settings",
+          "schemaVersion": 2,
+          "settings": {
+            "fileTypeAssociations": [
+              { "id": "00000000-0000-0000-0000-000000000001", "extensions": [], "matchesOtherExtensions": true, "applicationPath": "", "color": null }
+            ]
+          }
+        }
+        """
+
+        let imported = try service.importSettingsState(from: Data(json.utf8))
+
+        XCTAssertTrue(imported.fileTypeAssociations[0].matchesOtherExtensions)
+    }
+
+    func testImportRejectsMultipleOtherFileTypeAssociations() {
+        let json = """
+        {
+          "format": "antlers-settings",
+          "schemaVersion": 2,
+          "settings": {
+            "fileTypeAssociations": [
+              { "id": "00000000-0000-0000-0000-000000000001", "extensions": [], "matchesOtherExtensions": true, "applicationPath": "", "color": null },
+              { "id": "00000000-0000-0000-0000-000000000002", "extensions": [], "matchesOtherExtensions": true, "applicationPath": "", "color": null }
+            ]
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try service.importSettingsState(from: Data(json.utf8)))
     }
 
     func testImportIgnoresUnknownFieldsAndUsesDefaultsForMissingFields() throws {

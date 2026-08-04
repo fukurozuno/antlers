@@ -1255,6 +1255,60 @@ final class PaneStateTests: XCTestCase {
         XCTAssertEqual(state.markedItems.map(\.url), [largeFile])
     }
 
+    func testUnmarkItemsRemovesOnlySpecifiedMarks() {
+        let root = URL(fileURLWithPath: "/tmp/root")
+        let firstFile = root.appendingPathComponent("first.txt")
+        let secondFile = root.appendingPathComponent("second.txt")
+        var state = PaneState(
+            currentDirectory: root,
+            items: [
+                FileItem(url: firstFile, isDirectory: false),
+                FileItem(url: secondFile, isDirectory: false)
+            ],
+            markedItemURLs: [firstFile, secondFile]
+        )
+
+        state.unmarkItems(at: [firstFile])
+
+        XCTAssertEqual(state.markedItemURLs, [secondFile])
+    }
+
+    func testUnmarkItemsMatchesStandardizedFileURLs() {
+        let root = URL(fileURLWithPath: "/tmp/root")
+        let markedFile = root.appendingPathComponent("folder/../file.txt")
+        let equivalentFile = root.appendingPathComponent("file.txt")
+        var state = PaneState(
+            currentDirectory: root,
+            items: [FileItem(url: markedFile, isDirectory: false)],
+            markedItemURLs: [markedFile]
+        )
+
+        state.unmarkItems(at: [equivalentFile])
+
+        XCTAssertTrue(state.markedItemURLs.isEmpty)
+    }
+
+    func testLoadCurrentDirectoryDiscardsMarksForItemsNoLongerListed() {
+        let root = URL(fileURLWithPath: "/tmp/root")
+        let retainedFile = root.appendingPathComponent("retained.txt")
+        let removedFile = root.appendingPathComponent("removed.txt")
+        let service = StubDirectoryListingService(contentsByDirectory: [
+            root: [FileItem(url: retainedFile, isDirectory: false)]
+        ])
+        var state = PaneState(
+            currentDirectory: root,
+            items: [
+                FileItem(url: retainedFile, isDirectory: false),
+                FileItem(url: removedFile, isDirectory: false)
+            ],
+            markedItemURLs: [retainedFile, removedFile]
+        )
+
+        state.loadCurrentDirectory(using: service)
+
+        XCTAssertEqual(state.markedItemURLs, [retainedFile])
+    }
+
     func testApplySortBySizeAndToggleDirectionWhenSameCriterionIsApplied() {
         let root = URL(fileURLWithPath: "/tmp/root")
         var state = PaneState(

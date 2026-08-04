@@ -78,7 +78,7 @@ extension KeyStroke {
             break
         }
 
-        if let characters = event.characters, characters == ":" || characters == "@" || characters == "_" {
+        if let characters = event.characters, characters == ":" || characters == "@" || characters == "_" || characters == "+" {
             return characters
         }
 

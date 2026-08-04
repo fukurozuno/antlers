@@ -23,6 +23,7 @@ func makeFileNameInputField(currentName: String) -> NSTextField {
 final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private let listingService = DirectoryListingService()
     private let driveListingService = DriveListingService()
+    private let volumeEjectionService: VolumeEjecting = VolumeEjectionService()
     private let tagService = TagService()
     private let fileOperationService = FileOperationService()
     private let fileInfoService = FileInfoService()
@@ -40,7 +41,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private var confirmsBeforeCopy = true
     private var confirmsBeforeMove = true
     private var confirmsBeforeTrash = true
+    private var allowsExternalFileDrag = false
     private var fileOperationDetailLogLimit = 10
+    private var fileListFontSize = FileListFontSize.standard
     private var usesAlternatingRowBackgrounds = false
     private var showsFileIcons = true
     private var showsFileTagColors = true
@@ -65,6 +68,8 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private var isApplyingMessageWindowHeight = false
     private var didApplyInitialPaneWidth = false
     private var didApplyInitialMessageWindowHeight = false
+    private var fileListLayoutNeedsApplication = true
+    private var isFileListLayoutApplicationScheduled = false
 
     private let leftPaneView = FilePaneView(title: L10n.string("pane.left"))
     private let rightPaneView = FilePaneView(title: L10n.string("pane.right"))
@@ -96,7 +101,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         confirmsBeforeCopy = settings.confirmsBeforeCopy
         confirmsBeforeMove = settings.confirmsBeforeMove
         confirmsBeforeTrash = settings.confirmsBeforeTrash
+        allowsExternalFileDrag = settings.allowsExternalFileDrag
         fileOperationDetailLogLimit = settings.fileOperationDetailLogLimit
+        fileListFontSize = settings.fileListFontSize
         usesAlternatingRowBackgrounds = settings.usesAlternatingRowBackgrounds
         showsFileIcons = settings.showsFileIcons
         showsFileTagColors = settings.showsFileTagColors
@@ -192,6 +199,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(self)
+        requestFileListLayoutApplication()
     }
 
     override var acceptsFirstResponder: Bool {
@@ -431,6 +439,26 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             render()
         case .showJumpPathList:
             showJumpPathList()
+        case .openJumpPath1:
+            moveActivePaneToJumpPath(at: 0)
+        case .openJumpPath2:
+            moveActivePaneToJumpPath(at: 1)
+        case .openJumpPath3:
+            moveActivePaneToJumpPath(at: 2)
+        case .openJumpPath4:
+            moveActivePaneToJumpPath(at: 3)
+        case .openJumpPath5:
+            moveActivePaneToJumpPath(at: 4)
+        case .openJumpPath6:
+            moveActivePaneToJumpPath(at: 5)
+        case .openJumpPath7:
+            moveActivePaneToJumpPath(at: 6)
+        case .openJumpPath8:
+            moveActivePaneToJumpPath(at: 7)
+        case .openJumpPath9:
+            moveActivePaneToJumpPath(at: 8)
+        case .openJumpPath0:
+            moveActivePaneToJumpPath(at: 9)
         case .createFolder:
             promptAndCreateFolder()
         case .showDriveList:
@@ -453,6 +481,12 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             applySort(.name)
         case .sortByModificationDate:
             applySort(.modificationDate)
+        case .increaseFileListFontSize:
+            adjustFileListFontSize(by: 1)
+        case .decreaseFileListFontSize:
+            adjustFileListFontSize(by: -1)
+        case .resetFileListFontSize:
+            setFileListFontSize(FileListFontSize.standard)
         }
     }
 
@@ -590,6 +624,19 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         render()
     }
 
+    private func copyCurrentDirectoryPathToClipboard() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(activePaneState.currentDirectory.path, forType: .string) else {
+            appendMessage(L10n.string("message.clipboardCopyFailed"), in: activePane)
+            render()
+            return
+        }
+
+        appendMessage(L10n.format(ClipboardCopyFormat.fullPath.resultMessageKey, 1), in: activePane)
+        render()
+    }
+
     private func fileInfoMessage(for info: FileInfo) -> String {
         var parts = [
             L10n.format("message.fileInfo.name", info.name),
@@ -642,6 +689,23 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         )
     }
 
+    private func adjustFileListFontSize(by delta: Int) {
+        setFileListFontSize(fileListFontSize + delta)
+    }
+
+    private func setFileListFontSize(_ fontSize: Int) {
+        let normalizedFontSize = FileListFontSize.normalized(fontSize)
+        guard normalizedFontSize != fileListFontSize else {
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .settingsDidChange,
+            object: self,
+            userInfo: [SettingsNotificationKey.fileListFontSize: normalizedFontSize]
+        )
+    }
+
     @objc private func jumpPathEntriesDidChange(_ notification: Notification) {
         guard let entries = notification.userInfo?[SettingsNotificationKey.jumpPathEntries] as? [JumpPathEntry] else {
             return
@@ -662,6 +726,12 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             leftState.setShowsHiddenFiles(showsHiddenFiles, using: listingService)
             rightState.setShowsHiddenFiles(showsHiddenFiles, using: listingService)
             appendMessageToBothPanes(L10n.format("message.hiddenFilesChanged", localizedOnOff(showsHiddenFiles)))
+        }
+
+        if let allowsExternalFileDrag = notification.userInfo?[SettingsNotificationKey.allowsExternalFileDrag] as? Bool {
+            self.allowsExternalFileDrag = allowsExternalFileDrag
+            leftPaneView.allowsExternalFileDrag = allowsExternalFileDrag
+            rightPaneView.allowsExternalFileDrag = allowsExternalFileDrag
         }
 
         if let showsFileIcons = notification.userInfo?[SettingsNotificationKey.showsFileIcons] as? Bool {
@@ -729,6 +799,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             )
         }
 
+        if let fileListFontSize = notification.userInfo?[SettingsNotificationKey.fileListFontSize] as? Int {
+            self.fileListFontSize = FileListFontSize.normalized(fileListFontSize)
+            requestFileListLayoutApplication()
+        }
+
         if let appLanguage = notification.userInfo?[SettingsNotificationKey.appLanguage] as? AppLanguage {
             L10n.setAppLanguage(appLanguage)
             appendMessageToBothPanes(L10n.string("message.languageChanged"))
@@ -770,6 +845,8 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func configurePaneCallbacks() {
+        leftPaneView.allowsExternalFileDrag = allowsExternalFileDrag
+        rightPaneView.allowsExternalFileDrag = allowsExternalFileDrag
         leftPaneView.onActivate = { [weak self] in
             self?.activatePane(.left)
         }
@@ -778,6 +855,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         }
         leftPaneView.onContextMenuRequest = { [weak self] point in
             self?.showContextMenu(at: point, in: .left)
+        }
+        leftPaneView.dragItemsForSourceItem = { [weak self] item in
+            guard let self else { return [] }
+            return self.externalDragItems(for: item, in: .left)
         }
         leftPaneView.onIncrementalSearchQueryChange = { [weak self] query in
             self?.updateSearchInputQuery(query, in: .left)
@@ -797,6 +878,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         }
         rightPaneView.onContextMenuRequest = { [weak self] point in
             self?.showContextMenu(at: point, in: .right)
+        }
+        rightPaneView.dragItemsForSourceItem = { [weak self] item in
+            guard let self else { return [] }
+            return self.externalDragItems(for: item, in: .right)
         }
         rightPaneView.onIncrementalSearchQueryChange = { [weak self] query in
             self?.updateSearchInputQuery(query, in: .right)
@@ -818,6 +903,17 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         activePane = pane
         view.window?.makeFirstResponder(self)
         render()
+    }
+
+    private func externalDragItems(for sourceItem: FileItem, in pane: ActivePane) -> [FileItem] {
+        let state = paneState(pane)
+        guard !sourceItem.isSpecialItem else {
+            return []
+        }
+        guard state.markedItemURLs.contains(sourceItem.url) else {
+            return [sourceItem]
+        }
+        return state.visibleItems.filter { state.markedItemURLs.contains($0.url) && !$0.isSpecialItem }
     }
 
     private func selectItem(at index: Int, in pane: ActivePane) {
@@ -936,7 +1032,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func showContextMenu() {
-        guard activePaneState.selectedListItem?.isParentDirectoryItem != true else {
+        guard activePaneState.selectedListItem != nil else {
             return
         }
 
@@ -947,7 +1043,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
     private func showContextMenu(at point: NSPoint, in pane: ActivePane) {
         guard activePane == pane,
-              activePaneState.selectedListItem?.isParentDirectoryItem != true else {
+              activePaneState.selectedListItem != nil else {
             return
         }
 
@@ -957,24 +1053,32 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     func makeContextMenu() -> NSMenu {
+        makeContextMenu(for: activePaneState)
+    }
+
+    func makeContextMenu(for state: PaneState) -> NSMenu {
         let menu = NSMenu()
-        let hasSelectedItem = activePaneState.selectedItem != nil
-        let hasMarkedItems = !activePaneState.markedItems.isEmpty
-        let hasOperationTargets = hasSelectedItem || hasMarkedItems
+        menu.autoenablesItems = false
+        let hasSelectedItem = state.selectedItem != nil
+        let hasMarkedItems = !state.markedItems.isEmpty
+        let hasSelectedParentDirectoryItem = state.selectedListItem?.isParentDirectoryItem == true
+        let hasOperationTargets = !hasSelectedParentDirectoryItem && (hasSelectedItem || hasMarkedItems)
+        let canRevealInFinder = hasSelectedItem || hasSelectedParentDirectoryItem
+        let canCopyPath = hasOperationTargets || hasSelectedParentDirectoryItem
 
         addMenuItem(L10n.string("contextMenu.open"), action: #selector(openSelectedContextMenuItem(_:)), to: menu, isEnabled: hasSelectedItem)
-        addOpenWithMenu(to: menu, isEnabled: hasSelectedItem)
+        addOpenWithMenu(to: menu, for: state, isEnabled: hasSelectedItem)
         addMenuItem(
             L10n.string("contextMenu.revealInFinder"),
             action: #selector(revealSelectedContextMenuItemInFinder(_:)),
             to: menu,
-            isEnabled: hasSelectedItem
+            isEnabled: canRevealInFinder
         )
         addMenuItem(
             L10n.string("contextMenu.copyPath"),
             action: #selector(copyPathContextMenuItemsToClipboard(_:)),
             to: menu,
-            isEnabled: hasOperationTargets
+            isEnabled: canCopyPath
         )
         menu.addItem(.separator())
         addMenuItem(L10n.string("contextMenu.copy"), action: #selector(copyContextMenuItems(_:)), to: menu, isEnabled: hasOperationTargets)
@@ -999,12 +1103,12 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         menu.addItem(item)
     }
 
-    private func addOpenWithMenu(to menu: NSMenu, isEnabled: Bool) {
+    private func addOpenWithMenu(to menu: NSMenu, for state: PaneState, isEnabled: Bool) {
         let item = NSMenuItem(title: L10n.string("contextMenu.openWith"), action: nil, keyEquivalent: "")
         item.isEnabled = isEnabled
 
         let submenu = NSMenu()
-        if let selectedItem = activePaneState.selectedItem, isEnabled {
+        if let selectedItem = state.selectedItem, isEnabled {
             let applications = NSWorkspace.shared.urlsForApplications(toOpen: selectedItem.url).sorted {
                 applicationDisplayName(for: $0).localizedStandardCompare(applicationDisplayName(for: $1)) == .orderedAscending
             }
@@ -1084,9 +1188,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         if selectedItem.isDirectory {
             render()
         } else {
-            NSWorkspace.shared.open(selectedItem.url)
-            appendMessage(L10n.format("message.openedItem", selectedItem.name), in: activePane)
-            render()
+            announceOpening(selectedItem, in: activePane)
+            if !NSWorkspace.shared.open(selectedItem.url) {
+                appendMessage(L10n.format("message.openFailed", selectedItem.name), in: activePane)
+                render()
+            }
         }
     }
 
@@ -1095,13 +1201,14 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             return
         }
 
-        guard let association = fileTypeAssociations.first(where: {
-            $0.matches(fileExtension: selectedItem.url.pathExtension)
-        }), !association.applicationPath.isEmpty else {
+        guard let association = FileTypeAssociationResolver(associations: fileTypeAssociations)
+            .association(forFileExtension: selectedItem.url.pathExtension),
+            !association.applicationPath.isEmpty else {
             return
         }
 
         let applicationURL = URL(fileURLWithPath: association.applicationPath)
+        announceOpening(selectedItem, in: activePane)
         NSWorkspace.shared.open(
             [selectedItem.url],
             withApplicationAt: applicationURL,
@@ -1109,12 +1216,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         ) { [weak self] _, error in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if error == nil {
-                    self.appendMessage(L10n.format("message.openedItem", selectedItem.name), in: self.activePane)
-                } else {
+                if error != nil {
                     self.appendMessage(L10n.format("message.configuredApplicationNotFound", applicationURL.lastPathComponent), in: self.activePane)
+                    self.render()
                 }
-                self.render()
             }
         }
     }
@@ -1151,8 +1256,27 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         view.window?.makeFirstResponder(self)
     }
 
+    private func contextMenuRevealTarget() -> FileItem? {
+        if activePaneState.selectedListItem?.isParentDirectoryItem == true {
+            let currentDirectory = activePaneState.currentDirectory
+            return FileItem(
+                url: currentDirectory,
+                isDirectory: true,
+                name: contextMenuCurrentDirectoryDisplayName(for: currentDirectory)
+            )
+        }
+
+        return activePaneState.selectedItem
+    }
+
+    private func contextMenuCurrentDirectoryDisplayName(for directory: URL) -> String {
+        let displayName = directory.lastPathComponent
+        return displayName.isEmpty ? directory.path : displayName
+    }
+
     private func open(_ item: FileItem, withApplicationAt applicationURL: URL, in pane: ActivePane) {
         let configuration = NSWorkspace.OpenConfiguration()
+        announceOpening(item, in: pane)
         NSWorkspace.shared.open([item.url], withApplicationAt: applicationURL, configuration: configuration) { [weak self] _, error in
             DispatchQueue.main.async {
                 guard let self else {
@@ -1161,34 +1285,33 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
                 if let error {
                     self.appendMessage(L10n.format("message.openWithFailed", error.localizedDescription), in: pane)
-                } else {
-                    self.appendMessage(
-                        L10n.format(
-                            "message.openedItemWithApplication",
-                            item.name,
-                            self.applicationDisplayName(for: applicationURL)
-                        ),
-                        in: pane
-                    )
+                    self.render()
                 }
-                self.render()
             }
         }
     }
 
     @objc private func revealSelectedContextMenuItemInFinder(_ sender: NSMenuItem) {
-        guard let selectedItem = activePaneState.selectedItem else {
+        guard let revealTarget = contextMenuRevealTarget() else {
             return
         }
 
-        NSWorkspace.shared.activateFileViewerSelecting([selectedItem.url])
-        appendMessage(L10n.format("message.revealedInFinder", selectedItem.name), in: activePane)
+        if activePaneState.selectedListItem?.isParentDirectoryItem == true {
+            NSWorkspace.shared.open(revealTarget.url)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([revealTarget.url])
+        }
+        appendMessage(L10n.format("message.revealedInFinder", revealTarget.name), in: activePane)
         render()
         view.window?.makeFirstResponder(self)
     }
 
     @objc private func copyPathContextMenuItemsToClipboard(_ sender: NSMenuItem) {
-        copyActivePaneItemsToClipboard(format: .fullPath)
+        if activePaneState.selectedListItem?.isParentDirectoryItem == true {
+            copyCurrentDirectoryPathToClipboard()
+        } else {
+            copyActivePaneItemsToClipboard(format: .fullPath)
+        }
         view.window?.makeFirstResponder(self)
     }
 
@@ -1633,7 +1756,13 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 return promptResult.resolution
             }
 
-            mutatePane(destinationPane) { $0.loadCurrentDirectory(using: listingService) }
+            let copiedDestinationURLs = result.itemResults
+                .filter { $0.outcome == .copied }
+                .compactMap(\.destinationURL)
+            mutatePane(destinationPane) {
+                $0.loadCurrentDirectory(using: listingService)
+                $0.unmarkItems(at: copiedDestinationURLs)
+            }
             appendMessages(copyResultMessages(result, destinationDirectory: destinationDirectory), in: sourcePane)
         } catch {
             appendMessage(L10n.format("message.copyFailed", error.localizedDescription), in: sourcePane)
@@ -1739,12 +1868,18 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
         do {
             let result = try fileOperationService.trashItems(at: targets.map(\.url))
+            let trashedSourceURLs = result.itemResults
+                .filter { $0.outcome == .trashed }
+                .map(\.sourceURL)
             mutatePane(sourcePane) {
                 $0.loadCurrentDirectory(using: listingService)
-                $0.clearMarkedItems()
+                $0.unmarkItems(at: trashedSourceURLs)
             }
             appendMessages(trashResultMessages(result), in: sourcePane)
         } catch {
+            // 複数項目の処理中に失敗しても、それまでにゴミ箱へ移動済みの
+            // 項目の古いマークを残さないよう、一覧とマーク状態を再同期する。
+            mutatePane(sourcePane) { $0.loadCurrentDirectory(using: listingService) }
             appendMessage(L10n.format("message.trashFailed", error.localizedDescription), in: sourcePane)
         }
 
@@ -1828,8 +1963,20 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 return promptResult.resolution
             }
 
-            mutatePane(sourcePane) { $0.loadCurrentDirectory(using: listingService) }
-            mutatePane(destinationPane) { $0.loadCurrentDirectory(using: listingService) }
+            let movedSourceURLs = result.itemResults
+                .filter { $0.outcome == .moved }
+                .map(\.sourceURL)
+            let movedDestinationURLs = result.itemResults
+                .filter { $0.outcome == .moved }
+                .compactMap(\.destinationURL)
+            mutatePane(sourcePane) {
+                $0.loadCurrentDirectory(using: listingService)
+                $0.unmarkItems(at: movedSourceURLs)
+            }
+            mutatePane(destinationPane) {
+                $0.loadCurrentDirectory(using: listingService)
+                $0.unmarkItems(at: movedDestinationURLs)
+            }
             appendMessages(moveResultMessages(result, destinationDirectory: destinationDirectory), in: sourcePane)
         } catch {
             appendMessage(L10n.format("message.moveFailed", error.localizedDescription), in: sourcePane)
@@ -2080,6 +2227,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             controller.onSelect = { [weak self] volume in
                 self?.moveActivePane(to: volume)
             }
+            controller.onEject = { [weak self] volume in
+                self?.eject(volume)
+            }
             controller.onCancel = { [weak self] in
                 self?.closeDriveList()
             }
@@ -2102,6 +2252,88 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
     private func closeDriveList() {
         driveListPanelController.dismiss()
+    }
+
+    private func eject(_ volume: DriveVolume) {
+        guard volume.isUnmountable else {
+            appendMessage(L10n.format("message.ejectUnavailable", volume.displayName), in: activePane)
+            render()
+            return
+        }
+
+        guard promptForEjection(of: volume) else {
+            view.window?.makeFirstResponder(self)
+            return
+        }
+
+        unmount(volume, force: false)
+    }
+
+    private func unmount(_ volume: DriveVolume, force: Bool) {
+        let relocatedPanes = [ActivePane.left, .right].compactMap { pane -> (ActivePane, URL)? in
+            let currentDirectory = paneState(pane).currentDirectory
+            return isDescendant(currentDirectory, of: volume.url) ? (pane, currentDirectory) : nil
+        }
+        for (pane, _) in relocatedPanes {
+            mutatePane(pane) { $0.moveToDirectory(volumeEjectionService.safeFallbackDirectory, using: listingService) }
+            appendMessage(L10n.format("message.ejectPaneRelocated", volume.displayName), in: pane)
+        }
+
+        volumeEjectionService.unmount(volume, force: force) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success:
+                    self.closeDriveList()
+                    let messageKey = force ? "message.forceEjected" : "message.ejected"
+                    self.appendMessage(L10n.format(messageKey, volume.displayName), in: self.activePane)
+                    self.postPaneDirectoriesDidChange()
+                case .failure(let error):
+                    for (pane, originalDirectory) in relocatedPanes {
+                        self.mutatePane(pane) { $0.moveToDirectory(originalDirectory, using: self.listingService) }
+                    }
+                    if !force, self.canForceRetry(after: error), self.promptForForcedEjection(of: volume) {
+                        self.unmount(volume, force: true)
+                        return
+                    }
+                    self.appendMessage(L10n.format("message.ejectFailed", volume.displayName, error.localizedDescription), in: self.activePane)
+                }
+                self.view.window?.makeFirstResponder(self)
+                self.render()
+            }
+        }
+    }
+
+    private func promptForEjection(of volume: DriveVolume) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = L10n.string("alert.eject.title")
+        alert.informativeText = L10n.format("alert.eject.message", volume.displayName)
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L10n.string("alert.eject.eject"))
+        alert.addButton(withTitle: L10n.string("settings.button.cancel"))
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func promptForForcedEjection(of volume: DriveVolume) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = L10n.string("alert.forceEject.title")
+        alert.informativeText = L10n.format("alert.forceEject.message", volume.displayName)
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: L10n.string("alert.forceEject.force"))
+        alert.addButton(withTitle: L10n.string("settings.button.cancel"))
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func canForceRetry(after error: Swift.Error) -> Bool {
+        (error as? VolumeEjectionService.Error)?.canForceRetry == true
+    }
+
+    private func isDescendant(_ url: URL, of volumeURL: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let volumePath = volumeURL.standardizedFileURL.path
+        return path == volumePath || path.hasPrefix(volumePath + "/")
     }
 
     private func showTagFilterList() {
@@ -2263,6 +2495,15 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         render()
     }
 
+    private func moveActivePaneToJumpPath(at index: Int) {
+        guard jumpPathEntries.indices.contains(index) else {
+            render()
+            return
+        }
+
+        moveActivePane(to: jumpPathEntries[index])
+    }
+
     private func movePaneToHistoryPath(
         _ destinationPane: ActivePane,
         at index: Int,
@@ -2421,6 +2662,12 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         appendMessageLine("\(pane.messagePrefix): \(message)")
     }
 
+    private func announceOpening(_ item: FileItem, in pane: ActivePane) {
+        appendMessage(L10n.format("message.openingItem", item.name), in: pane)
+        render()
+        view.window?.displayIfNeeded()
+    }
+
     private func appendMessages(_ messages: [String], in pane: ActivePane) {
         for message in messages {
             appendMessage(message, in: pane)
@@ -2510,6 +2757,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
     private func render(preservingScrollPositionIn pane: ActivePane? = nil) {
         applyWindowTheme()
+        // フォント設定に応じた列レイアウトを適用する前に、ペイン幅を確定する。
+        applyPaneWidthRatio()
+        applyMessageWindowHeightRatio()
         leftPaneView.render(
             state: leftState,
             isActive: activePane == .left,
@@ -2539,8 +2789,38 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             preservesScrollPosition: pane == .right
         )
         messageLogView.render(messages: leftState.messageLines, theme: displayThemeSet.selectedTheme)
-        applyPaneWidthRatio()
-        applyMessageWindowHeightRatio()
+    }
+
+    private func requestFileListLayoutApplication() {
+        fileListLayoutNeedsApplication = true
+        guard !isFileListLayoutApplicationScheduled else {
+            return
+        }
+
+        isFileListLayoutApplicationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            // split view の divider 移動後に子ビューの bounds を確定させる。
+            self.view.layoutSubtreeIfNeeded()
+            self.applyPaneWidthRatio()
+            self.applyMessageWindowHeightRatio()
+            self.view.layoutSubtreeIfNeeded()
+            self.applyPendingFileListLayoutIfNeeded()
+            self.isFileListLayoutApplicationScheduled = false
+        }
+    }
+
+    private func applyPendingFileListLayoutIfNeeded() {
+        guard fileListLayoutNeedsApplication else {
+            return
+        }
+
+        fileListLayoutNeedsApplication = false
+        leftPaneView.applyFileListLayout(fontSize: fileListFontSize)
+        rightPaneView.applyFileListLayout(fontSize: fileListFontSize)
     }
 
     private func applyWindowTheme() {
@@ -3315,6 +3595,7 @@ private final class DriveListViewController: NSViewController {
     static let preferredContentSize = NSSize(width: 420, height: 260)
 
     var onSelect: ((DriveVolume) -> Void)?
+    var onEject: ((DriveVolume) -> Void)?
     var onCancel: (() -> Void)?
 
     private var volumes: [DriveVolume]
@@ -3365,6 +3646,9 @@ private final class DriveListViewController: NSViewController {
         }
         tableView.onOpenSelection = { [weak self] in
             self?.openSelectedVolume()
+        }
+        tableView.onEjectSelection = { [weak self] in
+            self?.ejectSelectedVolume()
         }
         tableView.onCancel = { [weak self] in
             self?.onCancel?()
@@ -3439,6 +3723,15 @@ private final class DriveListViewController: NSViewController {
         onSelect?(volumes[row])
     }
 
+    private func ejectSelectedVolume() {
+        let row = tableView.selectedRow
+        guard volumes.indices.contains(row), volumes[row].isUnmountable else {
+            return
+        }
+
+        onEject?(volumes[row])
+    }
+
     private func render(selectedIndex: Int?) {
         dataSource.volumes = volumes
         tableView.reloadData()
@@ -3475,9 +3768,16 @@ private final class DriveListViewController: NSViewController {
 private final class DriveListTableView: NSTableView {
     var onMoveSelection: ((Int) -> Void)?
     var onOpenSelection: (() -> Void)?
+    var onEjectSelection: (() -> Void)?
     var onCancel: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "e" {
+            onEjectSelection?()
+            return
+        }
+
         switch event.keyCode {
         case AppKeyCode.upArrow:
             onMoveSelection?(-1)
@@ -3510,27 +3810,15 @@ private final class DriveListDataSource: NSObject, NSTableViewDataSource, NSTabl
         }
 
         let identifier = NSUserInterfaceItemIdentifier("driveCell")
-        let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView ?? NSTableCellView()
-        let textField = cell.textField ?? NSTextField(labelWithString: "")
+        let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? DriveListCellView ?? DriveListCellView()
         let volume = volumes[row]
 
-        textField.stringValue = "\(volume.displayName)  —  \(volume.url.path)"
-        textField.font = .systemFont(ofSize: 13)
-        textField.textColor = textColor(tableView: tableView, row: row)
-        textField.lineBreakMode = .byTruncatingMiddle
-        textField.translatesAutoresizingMaskIntoConstraints = false
-
-        if textField.superview == nil {
-            cell.addSubview(textField)
-            cell.textField = textField
-            cell.identifier = identifier
-
-            NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-            ])
-        }
+        cell.identifier = identifier
+        cell.configure(
+            displayName: volume.displayName,
+            showsEjectIcon: volume.isUnmountable,
+            textColor: textColor(tableView: tableView, row: row)
+        )
 
         return cell
     }
@@ -3569,6 +3857,48 @@ private final class DriveListDataSource: NSObject, NSTableViewDataSource, NSTabl
     private var selectedBackgroundColor: NSColor {
         theme.resolvedColorPair(isSelected: true, isMarked: false, isDirectory: false).background?.nsColor
             ?? .selectedContentBackgroundColor
+    }
+}
+
+private final class DriveListCellView: NSTableCellView {
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let ejectLabel = NSTextField(labelWithString: "⏏")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        nameLabel.font = .systemFont(ofSize: 13)
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        ejectLabel.font = .systemFont(ofSize: 13)
+        ejectLabel.alignment = .center
+        ejectLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(nameLabel)
+        addSubview(ejectLabel)
+        textField = nameLabel
+
+        NSLayoutConstraint.activate([
+            nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            nameLabel.trailingAnchor.constraint(equalTo: ejectLabel.leadingAnchor, constant: -8),
+            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            ejectLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            ejectLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ejectLabel.widthAnchor.constraint(equalToConstant: 18)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(displayName: String, showsEjectIcon: Bool, textColor: NSColor) {
+        nameLabel.stringValue = displayName
+        nameLabel.textColor = textColor
+        ejectLabel.textColor = textColor
+        ejectLabel.isHidden = !showsEjectIcon
     }
 }
 

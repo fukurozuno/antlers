@@ -170,8 +170,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             appSettings.confirmsBeforeQuit = confirmsBeforeQuit
         }
 
+        if let allowsExternalFileDrag = notification.userInfo?[SettingsNotificationKey.allowsExternalFileDrag] as? Bool {
+            appSettings.allowsExternalFileDrag = allowsExternalFileDrag
+        }
+
         if let fileOperationDetailLogLimit = notification.userInfo?[SettingsNotificationKey.fileOperationDetailLogLimit] as? Int {
             appSettings.fileOperationDetailLogLimit = fileOperationDetailLogLimit
+        }
+
+        if let fileListFontSize = notification.userInfo?[SettingsNotificationKey.fileListFontSize] as? Int {
+            appSettings.fileListFontSize = FileListFontSize.normalized(fileListFontSize)
         }
 
         if let appLanguage = notification.userInfo?[SettingsNotificationKey.appLanguage] as? AppLanguage {
@@ -346,7 +354,9 @@ enum SettingsNotificationKey {
     static let confirmsBeforeMove = "confirmsBeforeMove"
     static let confirmsBeforeTrash = "confirmsBeforeTrash"
     static let confirmsBeforeQuit = "confirmsBeforeQuit"
+    static let allowsExternalFileDrag = "allowsExternalFileDrag"
     static let fileOperationDetailLogLimit = "fileOperationDetailLogLimit"
+    static let fileListFontSize = "fileListFontSize"
     static let appLanguage = "appLanguage"
     static let returnKeyBehavior = "returnKeyBehavior"
     static let incrementalSearchMatchMode = "incrementalSearchMatchMode"

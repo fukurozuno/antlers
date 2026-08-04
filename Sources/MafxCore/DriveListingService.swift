@@ -4,11 +4,14 @@ public struct DriveVolume: Equatable, Identifiable {
     public let id: URL
     public let url: URL
     public let displayName: String
+    /// Mafx が安全なアンマウント対象として扱う外部ローカルボリュームか。
+    public let isUnmountable: Bool
 
-    public init(url: URL, displayName: String) {
+    public init(url: URL, displayName: String, isUnmountable: Bool = false) {
         self.id = url
         self.url = url
         self.displayName = displayName
+        self.isUnmountable = isUnmountable
     }
 }
 
@@ -21,20 +24,31 @@ public final class DriveListingService: DriveListingProviding {
     private let homeDirectory: URL
     private let volumesDirectory: URL
     private let mountedVolumeURLsProvider: () -> [URL]?
+    private let mountedVolumeMetadataProvider: (URL) throws -> MountedVolumeMetadata
 
     public init(
         fileManager: FileManager = .default,
         homeDirectory: URL? = nil,
         volumesDirectory: URL = URL(fileURLWithPath: "/Volumes", isDirectory: true),
-        mountedVolumeURLsProvider: (() -> [URL]?)? = nil
+        mountedVolumeURLsProvider: (() -> [URL]?)? = nil,
+        mountedVolumeMetadataProvider: ((URL) throws -> MountedVolumeMetadata)? = nil
     ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory ?? fileManager.homeDirectoryForCurrentUser
         self.volumesDirectory = volumesDirectory
         self.mountedVolumeURLsProvider = mountedVolumeURLsProvider ?? {
             fileManager.mountedVolumeURLs(
-                includingResourceValuesForKeys: [.volumeLocalizedNameKey],
+                includingResourceValuesForKeys: [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey, .volumeIsRootFileSystemKey],
                 options: [.skipHiddenVolumes]
+            )
+        }
+        self.mountedVolumeMetadataProvider = mountedVolumeMetadataProvider ?? { url in
+            let values = try url.resourceValues(forKeys: [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey, .volumeIsRootFileSystemKey])
+            return MountedVolumeMetadata(
+                localizedName: values.volumeLocalizedName,
+                isInternal: values.volumeIsInternal == true,
+                isLocal: values.volumeIsLocal == true,
+                isRootFileSystem: values.volumeIsRootFileSystem == true
             )
         }
     }
@@ -57,10 +71,11 @@ public final class DriveListingService: DriveListingProviding {
         }
 
         return try urls.map { url in
-            let values = try url.resourceValues(forKeys: [.volumeLocalizedNameKey])
+            let metadata = try mountedVolumeMetadataProvider(url)
             return DriveVolume(
                 url: url,
-                displayName: Self.displayName(for: url, localizedName: values.volumeLocalizedName)
+                displayName: Self.displayName(for: url, localizedName: metadata.localizedName),
+                isUnmountable: metadata.isUnmountable
             )
         }
     }
@@ -152,5 +167,23 @@ public final class DriveListingService: DriveListingProviding {
 
         let lastPathComponent = url.lastPathComponent
         return lastPathComponent.isEmpty ? url.path : lastPathComponent
+    }
+}
+
+public struct MountedVolumeMetadata: Equatable {
+    public let localizedName: String?
+    public let isInternal: Bool
+    public let isLocal: Bool
+    public let isRootFileSystem: Bool
+
+    public init(localizedName: String?, isInternal: Bool, isLocal: Bool, isRootFileSystem: Bool) {
+        self.localizedName = localizedName
+        self.isInternal = isInternal
+        self.isLocal = isLocal
+        self.isRootFileSystem = isRootFileSystem
+    }
+
+    public var isUnmountable: Bool {
+        isLocal && !isInternal && !isRootFileSystem
     }
 }

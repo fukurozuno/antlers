@@ -20,7 +20,9 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         static let confirmsBeforeMove = "settings.confirmsBeforeMove"
         static let confirmsBeforeTrash = "settings.confirmsBeforeTrash"
         static let confirmsBeforeQuit = "settings.confirmsBeforeQuit"
+        static let allowsExternalFileDrag = "settings.allowsExternalFileDrag"
         static let fileOperationDetailLogLimit = "settings.fileOperationDetailLogLimit"
+        static let fileListFontSize = "settings.fileListFontSize"
         static let appLanguage = "settings.appLanguage"
         static let returnKeyBehavior = "settings.returnKeyBehavior"
         static let incrementalSearchMatchMode = "settings.incrementalSearchMatchMode"
@@ -97,9 +99,17 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
                 forKey: Key.confirmsBeforeQuit,
                 defaultValue: defaultSettings.confirmsBeforeQuit
             ),
+            allowsExternalFileDrag: bool(
+                forKey: Key.allowsExternalFileDrag,
+                defaultValue: defaultSettings.allowsExternalFileDrag
+            ),
             fileOperationDetailLogLimit: int(
                 forKey: Key.fileOperationDetailLogLimit,
                 defaultValue: defaultSettings.fileOperationDetailLogLimit
+            ),
+            fileListFontSize: fileListFontSize(
+                forKey: Key.fileListFontSize,
+                defaultValue: defaultSettings.fileListFontSize
             ),
             appLanguage: appLanguage(forKey: Key.appLanguage, defaultValue: defaultSettings.appLanguage),
             returnKeyBehavior: returnKeyBehavior(
@@ -163,7 +173,9 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         userDefaults.set(settings.confirmsBeforeMove, forKey: Key.confirmsBeforeMove)
         userDefaults.set(settings.confirmsBeforeTrash, forKey: Key.confirmsBeforeTrash)
         userDefaults.set(settings.confirmsBeforeQuit, forKey: Key.confirmsBeforeQuit)
+        userDefaults.set(settings.allowsExternalFileDrag, forKey: Key.allowsExternalFileDrag)
         userDefaults.set(settings.fileOperationDetailLogLimit, forKey: Key.fileOperationDetailLogLimit)
+        userDefaults.set(settings.fileListFontSize, forKey: Key.fileListFontSize)
         userDefaults.set(settings.appLanguage.rawValue, forKey: Key.appLanguage)
         userDefaults.set(settings.returnKeyBehavior.rawValue, forKey: Key.returnKeyBehavior)
         userDefaults.set(settings.incrementalSearchMatchMode.rawValue, forKey: Key.incrementalSearchMatchMode)
@@ -223,6 +235,14 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         }
 
         return max(0, userDefaults.integer(forKey: key))
+    }
+
+    private func fileListFontSize(forKey key: String, defaultValue: Int) -> Int {
+        guard userDefaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+
+        return FileListFontSize.normalized(userDefaults.integer(forKey: key))
     }
 
     private func appLanguage(forKey key: String, defaultValue: AppLanguage) -> AppLanguage {

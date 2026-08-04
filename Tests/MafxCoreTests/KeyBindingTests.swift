@@ -2,6 +2,23 @@ import XCTest
 @testable import MafxCore
 
 final class KeyBindingTests: XCTestCase {
+    func testDefaultFontSizeCommandsUseCommandPlusMinusAndZero() {
+        let resolver = KeymapResolver(keyBindingSet: .default)
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "+", modifiers: [.shift, .command])),
+            .matched(.increaseFileListFontSize)
+        )
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "-", modifiers: .command)),
+            .matched(.decreaseFileListFontSize)
+        )
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "0", modifiers: .command)),
+            .matched(.resetFileListFontSize)
+        )
+    }
+
     func testDefaultControlReturnOpensWithConfiguredApplication() {
         let resolver = KeymapResolver(keyBindingSet: .default)
 
@@ -140,6 +157,23 @@ final class KeyBindingTests: XCTestCase {
         XCTAssertEqual(resolver.resolve(KeyStroke(key: ".")), .unmatched)
     }
 
+    func testJumpPathOpenCommandsHaveNoDefaultBindings() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath1), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath2), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath3), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath4), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath5), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath6), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath7), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath8), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath9), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .openJumpPath0), [])
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "1")), .unmatched)
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "0")), .unmatched)
+    }
+
     func testResolverResolvesCustomToggleHiddenFilesBinding() {
         var set = KeyBindingSet.default
         set.addSequence(KeyBindingSequence(KeyStroke(key: ".", modifiers: .command)), to: .toggleHiddenFiles)
@@ -148,6 +182,22 @@ final class KeyBindingTests: XCTestCase {
         XCTAssertEqual(
             resolver.resolve(KeyStroke(key: ".", modifiers: .command)),
             .matched(.toggleHiddenFiles)
+        )
+    }
+
+    func testResolverResolvesCustomJumpPathOpenBindings() {
+        var set = KeyBindingSet.default
+        set.addSequence(KeyBindingSequence(KeyStroke(key: "1", modifiers: .control)), to: .openJumpPath1)
+        set.addSequence(KeyBindingSequence(KeyStroke(key: "0", modifiers: .control)), to: .openJumpPath0)
+        let resolver = KeymapResolver(keyBindingSet: set)
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "1", modifiers: .control)),
+            .matched(.openJumpPath1)
+        )
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "0", modifiers: .control)),
+            .matched(.openJumpPath0)
         )
     }
 
@@ -359,5 +409,7 @@ final class KeyBindingTests: XCTestCase {
         XCTAssertEqual(merged.sequences(for: .trashMarkedItems), [.init(.init(key: "D"))])
         XCTAssertEqual(merged.sequences(for: .openSelectedItem), [.init(.init(key: "Return", modifiers: .command))])
         XCTAssertEqual(merged.sequences(for: .toggleHiddenFiles), [])
+        XCTAssertEqual(merged.sequences(for: .openJumpPath1), [])
+        XCTAssertEqual(merged.sequences(for: .openJumpPath0), [])
     }
 }

@@ -2,6 +2,16 @@ import XCTest
 @testable import MafxCore
 
 final class SettingsStateTests: XCTestCase {
+    func testFileListFontSizeDefaultsToStandardAndNormalizesRange() {
+        var state = SettingsState(fileListFontSize: 1)
+
+        XCTAssertEqual(state.fileListFontSize, FileListFontSize.minimum)
+
+        state.setNumericValue(100, for: .fileListFontSize)
+
+        XCTAssertEqual(state.fileListFontSize, FileListFontSize.maximum)
+    }
+
     func testFileOperationDetailLogLimitDefaultsToTenAndAllowsZero() {
         var state = SettingsState()
 
@@ -39,6 +49,35 @@ final class SettingsStateTests: XCTestCase {
         ])
 
         XCTAssertEqual(duplicates, ["txt", "md"])
+    }
+
+    func testFileTypeAssociationResolverPrefersRegisteredExtensionOverOther() {
+        let other = FileTypeAssociation.other(applicationPath: "/tmp/other.app")
+        let text = FileTypeAssociation(extensions: ["txt"], applicationPath: "/tmp/text.app")
+        let resolver = FileTypeAssociationResolver(associations: [other, text])
+
+        XCTAssertEqual(resolver.association(forFileExtension: "txt")?.applicationPath, "/tmp/text.app")
+        XCTAssertEqual(resolver.association(forFileExtension: "PDF")?.applicationPath, "/tmp/other.app")
+        XCTAssertEqual(resolver.association(forFileExtension: "")?.applicationPath, "/tmp/other.app")
+    }
+
+    func testFileTypeAssociationAllowsOnlyOneOtherAssociation() {
+        XCTAssertTrue(FileTypeAssociation.hasDuplicateOtherExtensionsAssociation(in: [
+            .other(),
+            FileTypeAssociation(extensions: ["txt"]),
+            .other()
+        ]))
+    }
+
+    func testFileTypeAssociationDecodesLegacySettingsAsExtensionAssociation() throws {
+        let data = Data("""
+        {"id":"00000000-0000-0000-0000-000000000001","extensions":["txt"],"applicationPath":"","color":null}
+        """.utf8)
+
+        let association = try JSONDecoder().decode(FileTypeAssociation.self, from: data)
+
+        XCTAssertFalse(association.matchesOtherExtensions)
+        XCTAssertEqual(association.extensions, ["txt"])
     }
 
     func testFileTypeAssociationsCanBeAddedUpdatedAndRemoved() {
@@ -160,6 +199,22 @@ final class SettingsStateTests: XCTestCase {
 
         XCTAssertTrue(state.movesCursorAfterMarking)
         XCTAssertTrue(state.isToggleOn(.moveCursorAfterMarking))
+    }
+
+    func testAllowExternalFileDragDefaultsToOffAndCanBeToggled() {
+        var state = SettingsState(
+            tabs: [
+                SettingsTab(title: "General", items: [
+                    SettingsItem(title: "Allow external file drag", toggleID: .allowExternalFileDrag)
+                ])
+            ]
+        )
+
+        XCTAssertFalse(state.allowsExternalFileDrag)
+        XCTAssertFalse(state.isToggleOn(.allowExternalFileDrag))
+
+        XCTAssertEqual(state.toggleFocusedItem(), .allowExternalFileDrag)
+        XCTAssertTrue(state.allowsExternalFileDrag)
     }
 
     func testSelectPreviousDirectoryAfterMovingToParentDefaultsToOnAndCanBeToggled() {

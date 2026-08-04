@@ -57,10 +57,12 @@ public struct JumpPathEntry: Codable, Equatable {
     }
 }
 
-/// 拡張子ごとの起動アプリケーションと表示色をまとめた設定です。
+/// 拡張子または未登録拡張子ごとの起動アプリケーションと表示色をまとめた設定です。
 public struct FileTypeAssociation: Codable, Equatable, Identifiable {
     public var id: UUID
     public var extensions: [String]
+    /// `true` の場合、具体的な拡張子が登録されていない通常ファイルに適用します。
+    public var matchesOtherExtensions: Bool
     /// アプリケーションバンドルのパス。空文字列は未指定を表します。
     public var applicationPath: String
     public var color: DisplayColor?
@@ -68,19 +70,36 @@ public struct FileTypeAssociation: Codable, Equatable, Identifiable {
     public init(
         id: UUID = UUID(),
         extensions: [String],
+        matchesOtherExtensions: Bool = false,
         applicationPath: String = "",
         color: DisplayColor? = nil
     ) {
         self.id = id
-        self.extensions = Self.normalizedExtensions(extensions)
+        self.matchesOtherExtensions = matchesOtherExtensions
+        self.extensions = matchesOtherExtensions ? [] : Self.normalizedExtensions(extensions)
         self.applicationPath = applicationPath.trimmingCharacters(in: .whitespacesAndNewlines)
         self.color = color
     }
 
     public var extensionsText: String { extensions.joined(separator: ",") }
+    public var isOtherExtensionsAssociation: Bool { matchesOtherExtensions }
+
+    public static func other(
+        id: UUID = UUID(),
+        applicationPath: String = "",
+        color: DisplayColor? = nil
+    ) -> FileTypeAssociation {
+        FileTypeAssociation(
+            id: id,
+            extensions: [],
+            matchesOtherExtensions: true,
+            applicationPath: applicationPath,
+            color: color
+        )
+    }
 
     public func matches(fileExtension: String) -> Bool {
-        extensions.contains(Self.normalizedExtension(fileExtension))
+        !matchesOtherExtensions && extensions.contains(Self.normalizedExtension(fileExtension))
     }
 
     public static func normalizedExtensions(_ values: [String]) -> [String] {
@@ -111,6 +130,46 @@ public struct FileTypeAssociation: Codable, Equatable, Identifiable {
         }
 
         return duplicates
+    }
+
+    public static func hasDuplicateOtherExtensionsAssociation(in associations: [FileTypeAssociation]) -> Bool {
+        associations.filter(\.matchesOtherExtensions).count > 1
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case extensions
+        case matchesOtherExtensions
+        case applicationPath
+        case color
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        matchesOtherExtensions = try container.decodeIfPresent(Bool.self, forKey: .matchesOtherExtensions) ?? false
+        extensions = matchesOtherExtensions
+            ? []
+            : Self.normalizedExtensions(try container.decodeIfPresent([String].self, forKey: .extensions) ?? [])
+        applicationPath = (try container.decodeIfPresent(String.self, forKey: .applicationPath) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        color = try container.decodeIfPresent(DisplayColor.self, forKey: .color)
+    }
+}
+
+/// ファイル別設定を解決します。具体的な拡張子は「その他」より常に優先されます。
+public struct FileTypeAssociationResolver {
+    private let associations: [FileTypeAssociation]
+
+    public init(associations: [FileTypeAssociation]) {
+        self.associations = associations
+    }
+
+    public func association(forFileExtension fileExtension: String) -> FileTypeAssociation? {
+        if let exactMatch = associations.first(where: { $0.matches(fileExtension: fileExtension) }) {
+            return exactMatch
+        }
+        return associations.first(where: \.matchesOtherExtensions)
     }
 }
 
@@ -496,6 +555,7 @@ public enum SettingsToggleID: Equatable {
     case confirmBeforeMove
     case confirmBeforeTrash
     case confirmBeforeQuit
+    case allowExternalFileDrag
 }
 
 public enum SettingsChoiceID: Equatable {
@@ -508,6 +568,17 @@ public enum SettingsChoiceID: Equatable {
 
 public enum SettingsNumericID: Equatable {
     case fileOperationDetailLogLimit
+    case fileListFontSize
+}
+
+public enum FileListFontSize {
+    public static let minimum = 8
+    public static let standard = 13
+    public static let maximum = 24
+
+    public static func normalized(_ value: Int) -> Int {
+        min(maximum, max(minimum, value))
+    }
 }
 
 public enum AppLanguage: String, Codable, Equatable, CaseIterable {
@@ -600,7 +671,9 @@ public struct SettingsState: Equatable {
     public private(set) var confirmsBeforeMove: Bool
     public private(set) var confirmsBeforeTrash: Bool
     public private(set) var confirmsBeforeQuit: Bool
+    public private(set) var allowsExternalFileDrag: Bool
     public private(set) var fileOperationDetailLogLimit: Int
+    public private(set) var fileListFontSize: Int
     public private(set) var appLanguage: AppLanguage
     public private(set) var returnKeyBehavior: ReturnKeyBehavior
     public private(set) var incrementalSearchMatchMode: IncrementalSearchMatchMode
@@ -632,7 +705,9 @@ public struct SettingsState: Equatable {
         confirmsBeforeMove: Bool = true,
         confirmsBeforeTrash: Bool = true,
         confirmsBeforeQuit: Bool = true,
+        allowsExternalFileDrag: Bool = false,
         fileOperationDetailLogLimit: Int = 10,
+        fileListFontSize: Int = FileListFontSize.standard,
         appLanguage: AppLanguage = .system,
         returnKeyBehavior: ReturnKeyBehavior = .openSelectedDirectory,
         incrementalSearchMatchMode: IncrementalSearchMatchMode = .prefix,
@@ -663,7 +738,9 @@ public struct SettingsState: Equatable {
         self.confirmsBeforeMove = confirmsBeforeMove
         self.confirmsBeforeTrash = confirmsBeforeTrash
         self.confirmsBeforeQuit = confirmsBeforeQuit
+        self.allowsExternalFileDrag = allowsExternalFileDrag
         self.fileOperationDetailLogLimit = Self.normalizedNonNegativeInteger(fileOperationDetailLogLimit)
+        self.fileListFontSize = FileListFontSize.normalized(fileListFontSize)
         self.appLanguage = appLanguage
         self.returnKeyBehavior = returnKeyBehavior
         self.incrementalSearchMatchMode = incrementalSearchMatchMode
@@ -825,6 +902,8 @@ public struct SettingsState: Equatable {
             return confirmsBeforeTrash
         case .confirmBeforeQuit:
             return confirmsBeforeQuit
+        case .allowExternalFileDrag:
+            return allowsExternalFileDrag
         }
     }
 
@@ -856,6 +935,8 @@ public struct SettingsState: Equatable {
             confirmsBeforeTrash = isOn
         case .confirmBeforeQuit:
             confirmsBeforeQuit = isOn
+        case .allowExternalFileDrag:
+            allowsExternalFileDrag = isOn
         }
     }
 
@@ -910,6 +991,8 @@ public struct SettingsState: Equatable {
         switch numericID {
         case .fileOperationDetailLogLimit:
             return fileOperationDetailLogLimit
+        case .fileListFontSize:
+            return fileListFontSize
         }
     }
 
@@ -917,6 +1000,8 @@ public struct SettingsState: Equatable {
         switch numericID {
         case .fileOperationDetailLogLimit:
             fileOperationDetailLogLimit = Self.normalizedNonNegativeInteger(value)
+        case .fileListFontSize:
+            fileListFontSize = FileListFontSize.normalized(value)
         }
     }
 
@@ -1065,6 +1150,8 @@ public struct SettingsState: Equatable {
             confirmsBeforeTrash.toggle()
         case .confirmBeforeQuit:
             confirmsBeforeQuit.toggle()
+        case .allowExternalFileDrag:
+            allowsExternalFileDrag.toggle()
         }
     }
 
@@ -1125,7 +1212,9 @@ public struct AppSettings: Codable, Equatable {
     public var confirmsBeforeMove: Bool
     public var confirmsBeforeTrash: Bool
     public var confirmsBeforeQuit: Bool
+    public var allowsExternalFileDrag: Bool
     public var fileOperationDetailLogLimit: Int
+    public var fileListFontSize: Int
     public var appLanguage: AppLanguage
     public var returnKeyBehavior: ReturnKeyBehavior
     public var incrementalSearchMatchMode: IncrementalSearchMatchMode
@@ -1159,7 +1248,9 @@ public struct AppSettings: Codable, Equatable {
         confirmsBeforeMove: Bool = true,
         confirmsBeforeTrash: Bool = true,
         confirmsBeforeQuit: Bool = true,
+        allowsExternalFileDrag: Bool = false,
         fileOperationDetailLogLimit: Int = 10,
+        fileListFontSize: Int = FileListFontSize.standard,
         appLanguage: AppLanguage = .system,
         returnKeyBehavior: ReturnKeyBehavior = .openSelectedDirectory,
         incrementalSearchMatchMode: IncrementalSearchMatchMode = .prefix,
@@ -1192,7 +1283,9 @@ public struct AppSettings: Codable, Equatable {
         self.confirmsBeforeMove = confirmsBeforeMove
         self.confirmsBeforeTrash = confirmsBeforeTrash
         self.confirmsBeforeQuit = confirmsBeforeQuit
+        self.allowsExternalFileDrag = allowsExternalFileDrag
         self.fileOperationDetailLogLimit = Self.normalizedNonNegativeInteger(fileOperationDetailLogLimit)
+        self.fileListFontSize = FileListFontSize.normalized(fileListFontSize)
         self.appLanguage = appLanguage
         self.returnKeyBehavior = returnKeyBehavior
         self.incrementalSearchMatchMode = incrementalSearchMatchMode
@@ -1243,7 +1336,9 @@ public struct AppSettings: Codable, Equatable {
             confirmsBeforeMove: confirmsBeforeMove,
             confirmsBeforeTrash: confirmsBeforeTrash,
             confirmsBeforeQuit: confirmsBeforeQuit,
+            allowsExternalFileDrag: allowsExternalFileDrag,
             fileOperationDetailLogLimit: fileOperationDetailLogLimit,
+            fileListFontSize: fileListFontSize,
             appLanguage: appLanguage,
             returnKeyBehavior: returnKeyBehavior,
             incrementalSearchMatchMode: incrementalSearchMatchMode,
@@ -1289,7 +1384,9 @@ public struct AppSettings: Codable, Equatable {
         confirmsBeforeMove = state.confirmsBeforeMove
         confirmsBeforeTrash = state.confirmsBeforeTrash
         confirmsBeforeQuit = state.confirmsBeforeQuit
+        allowsExternalFileDrag = state.allowsExternalFileDrag
         fileOperationDetailLogLimit = Self.normalizedNonNegativeInteger(state.fileOperationDetailLogLimit)
+        fileListFontSize = FileListFontSize.normalized(state.fileListFontSize)
         appLanguage = state.appLanguage
         returnKeyBehavior = state.returnKeyBehavior
         incrementalSearchMatchMode = state.incrementalSearchMatchMode
@@ -1440,9 +1537,19 @@ public extension SettingsState {
                 toggleID: .confirmBeforeQuit
             ),
             SettingsItem(
+                title: "Allow dragging files to other applications",
+                localizationKey: "settings.item.allowExternalFileDrag",
+                toggleID: .allowExternalFileDrag
+            ),
+            SettingsItem(
                 title: "File operation detail log count",
                 localizationKey: "settings.item.fileOperationDetailLogLimit",
                 numericID: .fileOperationDetailLogLimit
+            ),
+            SettingsItem(
+                title: "File list font size",
+                localizationKey: "settings.item.fileListFontSize",
+                numericID: .fileListFontSize
             )
         ]),
         SettingsTab(title: "Keybindings", localizationKey: "settings.tab.keybindings", items: CommandID.allCases.map {

@@ -23,6 +23,14 @@ final class PaneInformationFormatterTests: XCTestCase {
         XCTAssertEqual(L10n.string("settings.language.japanese"), "日本語")
     }
 
+    func testOpeningMessageIsLocalized() {
+        L10n.setAppLanguage(.english)
+        XCTAssertEqual(L10n.format("message.openingItem", "report.pdf"), "Opening report.pdf…")
+
+        L10n.setAppLanguage(.japanese)
+        XCTAssertEqual(L10n.format("message.openingItem", "report.pdf"), "report.pdf を開いています…")
+    }
+
     func testJapaneseFormatSeparatesMarkedDirectoryCountFromFileTotalSize() {
         L10n.setAppLanguage(.japanese)
         let directory = URL(fileURLWithPath: "/tmp/pane-information")

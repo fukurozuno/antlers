@@ -191,6 +191,7 @@ public struct PaneState: Equatable {
             items += try service.contents(of: currentDirectory, includingHiddenFiles: showsHiddenFiles)
                 .filter { !$0.isSpecialItem }
             applyCurrentSort()
+            discardMarksForItemsNoLongerListed()
             clampSelectionToVisibleItems()
             errorMessage = nil
         } catch {
@@ -670,6 +671,20 @@ public struct PaneState: Equatable {
 
     public mutating func clearMarkedItems() {
         markedItemURLs.removeAll()
+    }
+
+    /// 指定した項目のマークだけを解除します。
+    /// ファイル操作の項目別実行結果を反映するために使用します。
+    public mutating func unmarkItems(at urls: some Sequence<URL>) {
+        let normalizedURLs = Set(urls.map { $0.standardizedFileURL })
+        markedItemURLs = markedItemURLs.filter { !normalizedURLs.contains($0.standardizedFileURL) }
+    }
+
+    private mutating func discardMarksForItemsNoLongerListed() {
+        let listedItemURLs = Set(items
+            .filter { !$0.isSpecialItem }
+            .map(\.url))
+        markedItemURLs.formIntersection(listedItemURLs)
     }
 
     private mutating func selectNextSearchMatch(offset: Int) {

@@ -132,6 +132,16 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
     case syncActivePaneToOpposite
     case syncOppositePaneToActive
     case showJumpPathList
+    case openJumpPath1
+    case openJumpPath2
+    case openJumpPath3
+    case openJumpPath4
+    case openJumpPath5
+    case openJumpPath6
+    case openJumpPath7
+    case openJumpPath8
+    case openJumpPath9
+    case openJumpPath0
     case createFolder
     case showDriveList
     case showTagFilterList
@@ -143,6 +153,9 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
     case sortByExtension
     case sortByName
     case sortByModificationDate
+    case increaseFileListFontSize
+    case decreaseFileListFontSize
+    case resetFileListFontSize
 
     public var title: String {
         switch self {
@@ -232,6 +245,26 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
             return "逆窓をアクティブペインのパスに同期"
         case .showJumpPathList:
             return "登録パス一覧を表示"
+        case .openJumpPath1:
+            return "登録パス1へ移動"
+        case .openJumpPath2:
+            return "登録パス2へ移動"
+        case .openJumpPath3:
+            return "登録パス3へ移動"
+        case .openJumpPath4:
+            return "登録パス4へ移動"
+        case .openJumpPath5:
+            return "登録パス5へ移動"
+        case .openJumpPath6:
+            return "登録パス6へ移動"
+        case .openJumpPath7:
+            return "登録パス7へ移動"
+        case .openJumpPath8:
+            return "登録パス8へ移動"
+        case .openJumpPath9:
+            return "登録パス9へ移動"
+        case .openJumpPath0:
+            return "登録パス10へ移動"
         case .createFolder:
             return "フォルダを作成"
         case .showDriveList:
@@ -254,6 +287,12 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
             return "ファイル名でソート"
         case .sortByModificationDate:
             return "更新日時でソート"
+        case .increaseFileListFontSize:
+            return "ファイル一覧のフォントサイズを拡大"
+        case .decreaseFileListFontSize:
+            return "ファイル一覧のフォントサイズを縮小"
+        case .resetFileListFontSize:
+            return "ファイル一覧のフォントサイズを標準に戻す"
         }
     }
 
@@ -267,6 +306,8 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
              .activateLeftPane, .activateRightPane, .switchActivePane, .openSelectedDirectory,
              .openSelectedItem, .openWithConfiguredApplication, .previewSelectedFile, .moveToParentDirectory, .historyBack, .historyForward, .showNavigationHistory,
              .syncActivePaneToOpposite, .syncOppositePaneToActive, .showJumpPathList, .beginDirectPathInput,
+             .openJumpPath1, .openJumpPath2, .openJumpPath3, .openJumpPath4, .openJumpPath5,
+             .openJumpPath6, .openJumpPath7, .openJumpPath8, .openJumpPath9, .openJumpPath0,
              .showDriveList,
              .showTagFilterList,
              .showSelectedItemInfo:
@@ -288,6 +329,8 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
             return .search
         case .sortBySize, .sortByExtension, .sortByName, .sortByModificationDate:
             return .sort
+        case .increaseFileListFontSize, .decreaseFileListFontSize, .resetFileListFontSize:
+            return .pane
         case .toggleHiddenFiles, .openSettings, .quitApplication:
             return .application
         }
@@ -410,6 +453,16 @@ public struct KeyBindingSet: Codable, Equatable {
         KeyBindingEntry(commandID: .syncActivePaneToOpposite, sequences: [.init(.init(key: "O"))]),
         KeyBindingEntry(commandID: .syncOppositePaneToActive, sequences: [.init(.init(key: "O", modifiers: .shift))]),
         KeyBindingEntry(commandID: .showJumpPathList, sequences: [.init(.init(key: "J"))]),
+        KeyBindingEntry(commandID: .openJumpPath1, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath2, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath3, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath4, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath5, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath6, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath7, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath8, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath9, sequences: []),
+        KeyBindingEntry(commandID: .openJumpPath0, sequences: []),
         KeyBindingEntry(commandID: .beginDirectPathInput, sequences: [.init(.init(key: "J", modifiers: .shift))]),
         KeyBindingEntry(commandID: .createFolder, sequences: [.init(.init(key: "K"))]),
         KeyBindingEntry(commandID: .showDriveList, sequences: [.init(.init(key: "L"))]),
@@ -424,7 +477,10 @@ public struct KeyBindingSet: Codable, Equatable {
         KeyBindingEntry(commandID: .sortBySize, sequences: [.init([.init(key: "S"), .init(key: "S")])]),
         KeyBindingEntry(commandID: .sortByExtension, sequences: [.init([.init(key: "S"), .init(key: "E")])]),
         KeyBindingEntry(commandID: .sortByName, sequences: [.init([.init(key: "S"), .init(key: "F")])]),
-        KeyBindingEntry(commandID: .sortByModificationDate, sequences: [.init([.init(key: "S"), .init(key: "T")])])
+        KeyBindingEntry(commandID: .sortByModificationDate, sequences: [.init([.init(key: "S"), .init(key: "T")])]),
+        KeyBindingEntry(commandID: .increaseFileListFontSize, sequences: [.init(.init(key: "+", modifiers: [.shift, .command]))]),
+        KeyBindingEntry(commandID: .decreaseFileListFontSize, sequences: [.init(.init(key: "-", modifiers: .command))]),
+        KeyBindingEntry(commandID: .resetFileListFontSize, sequences: [.init(.init(key: "0", modifiers: .command))])
     ])
 
     public func sequences(for commandID: CommandID, context: KeyBindingContext = .mainPane) -> [KeyBindingSequence] {

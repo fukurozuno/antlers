@@ -27,9 +27,24 @@ final class KeyStrokeEventAdapterTests: XCTestCase {
         )
     }
 
+    func testPlusKeyUsesDisplayedCharacterInsteadOfUnmodifiedEqualsKey() {
+        let event = makeKeyEvent(
+            modifierFlags: [.shift, .command],
+            characters: "+",
+            charactersIgnoringModifiers: "="
+        )
+
+        XCTAssertEqual(
+            KeyStroke(event: event),
+            KeyStroke(key: "+", modifiers: [.shift, .command])
+        )
+    }
+
     private func makeKeyEvent(
-        keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags = []
+        keyCode: UInt16 = 24,
+        modifierFlags: NSEvent.ModifierFlags = [],
+        characters: String = "",
+        charactersIgnoringModifiers: String = ""
     ) -> NSEvent {
         NSEvent.keyEvent(
             with: .keyDown,
@@ -38,8 +53,8 @@ final class KeyStrokeEventAdapterTests: XCTestCase {
             timestamp: 0,
             windowNumber: 0,
             context: nil,
-            characters: "",
-            charactersIgnoringModifiers: "",
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
             isARepeat: false,
             keyCode: keyCode
         )!

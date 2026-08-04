@@ -19,8 +19,8 @@ final class SettingsListEditorValidationTests: XCTestCase {
 
     func testDetectsUpdatedFileTypeThatHasNotBeenApplied() {
         XCTAssertTrue(hasUnappliedSettingsListEditorChanges(
-            current: .fileType(extensions: "txt,md", applicationPath: "/Applications/Editor.app", color: nil),
-            applied: .fileType(extensions: "txt", applicationPath: "/Applications/Editor.app", color: nil)
+            current: .fileType(extensions: "txt,md", isOtherExtensions: false, applicationPath: "/Applications/Editor.app", color: nil),
+            applied: .fileType(extensions: "txt", isOtherExtensions: false, applicationPath: "/Applications/Editor.app", color: nil)
         ))
     }
 

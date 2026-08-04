@@ -54,6 +54,14 @@ final class DriveListingServiceTests: XCTestCase {
             volumesDirectory: volumesDirectory,
             mountedVolumeURLsProvider: { [mountedVolume, iCloudDrive] in
                 [mountedVolume, iCloudDrive]
+            },
+            mountedVolumeMetadataProvider: { url in
+                MountedVolumeMetadata(
+                    localizedName: url.lastPathComponent,
+                    isInternal: url != mountedVolume,
+                    isLocal: true,
+                    isRootFileSystem: false
+                )
             }
         )
 
@@ -63,6 +71,8 @@ final class DriveListingServiceTests: XCTestCase {
         XCTAssertTrue(volumes.allSatisfy { $0.url.isFileURL })
         XCTAssertTrue(volumes.allSatisfy { !$0.displayName.isEmpty })
         XCTAssertTrue(volumes.contains { hasPath($0.url, equalTo: mountedVolume) })
+        XCTAssertTrue(volumes.first { hasPath($0.url, equalTo: mountedVolume) }?.isUnmountable == true)
+        XCTAssertTrue(volumes.first { hasPath($0.url, equalTo: iCloudDrive) }?.isUnmountable == false)
         XCTAssertTrue(volumes.contains { hasPath($0.url, equalTo: fallbackNetworkVolume) })
         XCTAssertTrue(volumes.contains { hasPath($0.url, equalTo: iCloudDrive) && $0.displayName == "iCloud Drive" })
         XCTAssertTrue(volumes.contains { hasPath($0.url, equalTo: oneDrive) && $0.displayName == "OneDrive" })
@@ -73,6 +83,41 @@ final class DriveListingServiceTests: XCTestCase {
             volumes.map(\.displayName).sorted {
                 $0.localizedStandardCompare($1) == .orderedAscending
             }
+        )
+    }
+
+    func testMountedVolumeMetadataAllowsOnlyExternalLocalNonRootVolumes() {
+        XCTAssertTrue(
+            MountedVolumeMetadata(
+                localizedName: "External",
+                isInternal: false,
+                isLocal: true,
+                isRootFileSystem: false
+            ).isUnmountable
+        )
+        XCTAssertFalse(
+            MountedVolumeMetadata(
+                localizedName: "Internal",
+                isInternal: true,
+                isLocal: true,
+                isRootFileSystem: false
+            ).isUnmountable
+        )
+        XCTAssertFalse(
+            MountedVolumeMetadata(
+                localizedName: "Network",
+                isInternal: false,
+                isLocal: false,
+                isRootFileSystem: false
+            ).isUnmountable
+        )
+        XCTAssertFalse(
+            MountedVolumeMetadata(
+                localizedName: "Root",
+                isInternal: false,
+                isLocal: true,
+                isRootFileSystem: true
+            ).isUnmountable
         )
     }
 

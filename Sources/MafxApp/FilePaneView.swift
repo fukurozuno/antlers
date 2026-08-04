@@ -8,6 +8,11 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
     var onIncrementalSearchQueryChange: ((String) -> Void)?
     var onIncrementalSearchMove: ((Int) -> Void)?
     var onIncrementalSearchEnd: ((Bool) -> Void)?
+    var dragItemsForSourceItem: ((FileItem) -> [FileItem])?
+    var allowsExternalFileDrag: Bool {
+        get { tableView.allowsExternalFileDrag }
+        set { tableView.allowsExternalFileDrag = newValue }
+    }
 
     private let titleLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
@@ -16,6 +21,7 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
     private let sortPromptLabel = NSTextField(labelWithString: "")
     private let incrementalSearchField = IncrementalSearchTextField(string: "")
     private let informationLabel = NSTextField(labelWithString: "")
+    private let previewFileNameLabel = NSTextField(labelWithString: "")
     private let tableView = FilePaneTableView()
     private let scrollView = NSScrollView()
     private let previewService: PreviewService = QuickLookPreviewService()
@@ -37,6 +43,7 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
     private var renderedShowsFileExtensionsSeparately = true
     private var renderedFileTypeAssociations: [FileTypeAssociation] = []
     private var renderedFileTypeColorScope: FileTypeColorScope = .fileName
+    private var appliedFileListLayout: FileListLayout?
     private var topVisibleRow = 0
     private var renderedPreviewItemURL: URL?
     private var previewPresentationState = PreviewPresentationState()
@@ -63,6 +70,9 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
             }
 
             self.onContextMenuRequest?(self.convert(pointInTable, from: self.tableView))
+        }
+        tableView.dragItemsForSourceItem = { [weak self] item in
+            self?.dragItemsForSourceItem?(item) ?? []
         }
     }
 
@@ -129,6 +139,8 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         incrementalSearchField.isHidden = !isSearchInputActive
         informationLabel.stringValue = informationFormatter.string(for: state)
         let isPreviewing = state.isPreviewing
+        previewFileNameLabel.stringValue = state.previewItemURL?.lastPathComponent ?? ""
+        previewFileNameLabel.isHidden = !isPreviewing
         scrollView.isHidden = isPreviewing
         if let previewItemURL = state.previewItemURL {
             if renderedPreviewItemURL != previewItemURL {
@@ -143,10 +155,11 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
             previewService.endPreview()
         }
         let visibleItems = state.visibleItems
+        let itemsChanged = renderedItems != visibleItems
         let visibleSelectedIndex = state.visibleSelectedIndex
         let displayedSelectedIndex = isActive ? visibleSelectedIndex : nil
         let previousSelectedRow = renderedSelectedRow
-        if renderedItems != visibleItems
+        if itemsChanged
             || renderedMarkedItemURLs != state.markedItemURLs
             || renderedIsActive != isActive
             || renderedUsesAlternatingRowBackgrounds != usesAlternatingRowBackgrounds
@@ -166,11 +179,13 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
             dataSource.showsFileExtensionsSeparately = showsFileExtensionsSeparately
             dataSource.fileTypeAssociations = fileTypeAssociations
             dataSource.fileTypeColorScope = fileTypeColorScope
-            dataSource.tagColorsByName = Dictionary(
-                uniqueKeysWithValues: tagService.tags(in: visibleItems).compactMap { tag in
-                    tag.color.map { (tag.name, $0) }
-                }
-            )
+            if itemsChanged {
+                dataSource.tagColorsByName = Dictionary(
+                    uniqueKeysWithValues: tagService.tags(in: visibleItems).compactMap { tag in
+                        tag.color.map { (tag.name, $0) }
+                    }
+                )
+            }
             tableView.reloadData()
             renderedItems = visibleItems
             renderedMarkedItemURLs = state.markedItemURLs
@@ -232,9 +247,11 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         sortLabel.backgroundColor = backgroundColor
         sortPromptLabel.backgroundColor = backgroundColor
         informationLabel.backgroundColor = backgroundColor
+        previewFileNameLabel.backgroundColor = backgroundColor
         pathLabel.textColor = foregroundColor
         sortPromptLabel.textColor = foregroundColor
         informationLabel.textColor = foregroundColor
+        previewFileNameLabel.textColor = foregroundColor
         incrementalSearchField.drawsBackground = true
         incrementalSearchField.backgroundColor = backgroundColor
         incrementalSearchField.textColor = foregroundColor
@@ -489,6 +506,10 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         informationLabel.textColor = .secondaryLabelColor
         informationLabel.lineBreakMode = .byTruncatingTail
         informationLabel.translatesAutoresizingMaskIntoConstraints = false
+        previewFileNameLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        previewFileNameLabel.alignment = .center
+        previewFileNameLabel.lineBreakMode = .byTruncatingMiddle
+        previewFileNameLabel.isHidden = true
 
         let nameColumn = NSTableColumn(identifier: FilePaneDataSource.nameColumnIdentifier)
         nameColumn.title = L10n.string("pane.column.name")
@@ -583,7 +604,13 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         headerStack.spacing = 2
         headerStack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 6, right: 10)
 
-        let rootStack = NSStackView(views: [headerStack, contentContainer, sortPromptLabel, incrementalSearchField])
+        let rootStack = NSStackView(views: [
+            headerStack,
+            contentContainer,
+            previewFileNameLabel,
+            sortPromptLabel,
+            incrementalSearchField
+        ])
         rootStack.orientation = .vertical
         rootStack.spacing = 0
         rootStack.translatesAutoresizingMaskIntoConstraints = false
@@ -627,6 +654,37 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
             )
         }
     }
+
+    func applyFileListLayout(fontSize: Int) {
+        let layout = FileListLayout(fontSize: fontSize)
+        guard appliedFileListLayout != layout else {
+            return
+        }
+
+        guard let nameColumn = tableView.tableColumn(withIdentifier: FilePaneDataSource.nameColumnIdentifier),
+              let modifiedColumn = tableView.tableColumn(withIdentifier: FilePaneDataSource.modifiedColumnIdentifier) else {
+            return
+        }
+
+        dataSource.font = layout.font
+        tableView.rowHeight = layout.rowHeight
+        modifiedColumn.minWidth = layout.modificationDateColumnWidth
+        modifiedColumn.maxWidth = layout.modificationDateColumnWidth
+        modifiedColumn.width = layout.modificationDateColumnWidth
+        let nonNameColumnWidth = tableView.tableColumns
+            .filter { $0.identifier != FilePaneDataSource.nameColumnIdentifier }
+            .reduce(CGFloat.zero) { $0 + $1.width }
+        let columnOriginX = tableView.rect(ofColumn: 0).minX
+        let availableColumnWidth = max(0, scrollView.contentView.bounds.width - columnOriginX)
+        nameColumn.width = FileListColumnMetrics.nameColumnWidth(
+            availableColumnWidth: availableColumnWidth,
+            nonNameColumnWidth: nonNameColumnWidth,
+            minimumNameColumnWidth: nameColumn.minWidth
+        )
+        tableView.tile()
+        appliedFileListLayout = layout
+        tableView.reloadData()
+    }
 }
 
 private final class IncrementalSearchTextField: NSTextField {
@@ -660,6 +718,10 @@ private enum SearchKeyCode {
 private final class FilePaneTableView: NSTableView {
     var onMouseDown: (() -> Void)?
     var onContextMenuRequest: ((NSPoint) -> Void)?
+    var dragItemsForSourceItem: ((FileItem) -> [FileItem])?
+    var allowsExternalFileDrag = false
+    private var mouseDownRow: Int?
+    private var pendingDragItems: [FileItem] = []
 
     override var acceptsFirstResponder: Bool {
         false
@@ -667,7 +729,134 @@ private final class FilePaneTableView: NSTableView {
 
     override func mouseDown(with event: NSEvent) {
         onMouseDown?()
-        super.mouseDown(with: event)
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        guard allowsExternalFileDrag,
+              row >= 0,
+              let sourceItem = (dataSource as? FilePaneDataSource)?.item(at: row),
+              !sourceItem.isSpecialItem,
+              let window else {
+            mouseDownRow = row >= 0 ? row : nil
+            super.mouseDown(with: event)
+            return
+        }
+
+        let dragItems = dragItemsForSourceItem?(sourceItem).filter { !$0.isSpecialItem } ?? []
+        guard !dragItems.isEmpty else {
+            return
+        }
+        mouseDownRow = row
+        pendingDragItems = dragItems
+        selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+
+        window.trackEvents(
+            matching: [.leftMouseDragged, .leftMouseUp],
+            timeout: NSEvent.foreverDuration,
+            mode: .eventTracking
+        ) { [weak self] trackingEvent, stop in
+            guard let self else {
+                stop.pointee = true
+                return
+            }
+
+            guard let trackingEvent,
+                  trackingEvent.type == .leftMouseDragged,
+                  let mouseDownRow = self.mouseDownRow else {
+                stop.pointee = true
+                return
+            }
+
+            guard !self.pendingDragItems.isEmpty else {
+                stop.pointee = true
+                return
+            }
+
+            let sourceFrame = self.rect(ofRow: mouseDownRow)
+            let draggingItems = self.pendingDragItems.enumerated().map { index, item in
+                let draggingItem = NSDraggingItem(pasteboardWriter: item.url as NSURL)
+                let contents: NSImage
+                let frame: NSRect
+                if index == 0 {
+                    contents = self.draggingPreviewImage(for: self.pendingDragItems)
+                    frame = NSRect(origin: sourceFrame.origin, size: contents.size)
+                } else {
+                    contents = NSImage(size: NSSize(width: 1, height: 1))
+                    frame = NSRect(
+                        x: sourceFrame.origin.x + CGFloat(index * 4),
+                        y: sourceFrame.origin.y - CGFloat(index * 4),
+                        width: 1,
+                        height: 1
+                    )
+                }
+                draggingItem.setDraggingFrame(frame, contents: contents)
+                return draggingItem
+            }
+            self.beginDraggingSession(with: draggingItems, event: trackingEvent, source: self)
+            self.mouseDownRow = nil
+            self.pendingDragItems = []
+            stop.pointee = true
+        }
+    }
+
+    override func draggingSession(
+        _ session: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        context == .outsideApplication ? .copy : []
+    }
+
+    override func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+        true
+    }
+
+    private func draggingPreviewImage(for items: [FileItem]) -> NSImage {
+        let displayedItems = Array(items.prefix(5))
+        let lineHeight: CGFloat = 20
+        let iconSize: CGFloat = 16
+        let horizontalPadding: CGFloat = 10
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let names = displayedItems.map(\.name)
+        let textWidth = names.reduce(CGFloat(0)) { width, name in
+            max(width, (name as NSString).size(withAttributes: textAttributes).width)
+        }
+        let overflowText = items.count > displayedItems.count ? "+\(items.count - displayedItems.count)" : nil
+        let overflowWidth = overflowText.map { ($0 as NSString).size(withAttributes: textAttributes).width } ?? 0
+        let width = min(max(160, textWidth + iconSize + horizontalPadding * 3), 360)
+        let height = CGFloat(displayedItems.count + (overflowText == nil ? 0 : 1)) * lineHeight + horizontalPadding
+        let image = NSImage(size: NSSize(width: width, height: height))
+
+        image.lockFocus()
+        let bounds = NSRect(origin: .zero, size: image.size)
+        NSColor.windowBackgroundColor.withAlphaComponent(0.94).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
+
+        for (index, item) in displayedItems.enumerated() {
+            let y = height - horizontalPadding - CGFloat(index + 1) * lineHeight
+            let iconRect = NSRect(x: horizontalPadding, y: y + 2, width: iconSize, height: iconSize)
+            NSWorkspace.shared.icon(forFile: item.url.path).draw(in: iconRect)
+            let textRect = NSRect(
+                x: iconRect.maxX + horizontalPadding,
+                y: y + 2,
+                width: width - iconRect.maxX - horizontalPadding * 2,
+                height: lineHeight
+            )
+            (item.name as NSString).draw(in: textRect, withAttributes: textAttributes)
+        }
+
+        if let overflowText {
+            let textRect = NSRect(
+                x: horizontalPadding + iconSize + horizontalPadding,
+                y: horizontalPadding,
+                width: overflowWidth,
+                height: lineHeight
+            )
+            (overflowText as NSString).draw(in: textRect, withAttributes: textAttributes)
+        }
+
+        image.unlockFocus()
+        return image
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -680,6 +869,45 @@ private final class FilePaneTableView: NSTableView {
         onMouseDown?()
         selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         onContextMenuRequest?(point)
+    }
+}
+
+struct FileListColumnMetrics {
+    private static let modificationDateText = "0000/00/00 00:00:00"
+    private static let textHorizontalInset: CGFloat = 8
+
+    static func modificationDateWidth(font: NSFont) -> CGFloat {
+        let textField = NSTextField(labelWithString: modificationDateText)
+        textField.font = font
+        let stringWidth = (modificationDateText as NSString).size(withAttributes: [.font: font]).width
+        let fittingWidth = textField.fittingSize.width
+        return ceil(max(stringWidth, fittingWidth)) + textHorizontalInset * 2
+    }
+
+    static func nameColumnWidth(
+        availableColumnWidth: CGFloat,
+        nonNameColumnWidth: CGFloat,
+        minimumNameColumnWidth: CGFloat
+    ) -> CGFloat {
+        max(minimumNameColumnWidth, availableColumnWidth - nonNameColumnWidth)
+    }
+}
+
+private struct FileListLayout: Equatable {
+    let fontSize: Int
+    let rowHeight: CGFloat
+    let modificationDateColumnWidth: CGFloat
+
+    var font: NSFont {
+        .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+    }
+
+    init(fontSize: Int) {
+        let normalizedFontSize = FileListFontSize.normalized(fontSize)
+        let font = NSFont.monospacedSystemFont(ofSize: CGFloat(normalizedFontSize), weight: .regular)
+        self.fontSize = normalizedFontSize
+        rowHeight = max(22, ceil(font.ascender - font.descender + 6))
+        modificationDateColumnWidth = FileListColumnMetrics.modificationDateWidth(font: font)
     }
 }
 
@@ -699,6 +927,11 @@ private final class FilePaneDataSource: NSObject, NSTableViewDataSource, NSTable
     var showsFileExtensionsSeparately = true
     var fileTypeAssociations: [FileTypeAssociation] = []
     var fileTypeColorScope: FileTypeColorScope = .fileName
+    var font = NSFont.monospacedSystemFont(ofSize: CGFloat(FileListFontSize.standard), weight: .regular)
+
+    func item(at row: Int) -> FileItem? {
+        items.indices.contains(row) ? items[row] : nil
+    }
     var tagColorsByName: [String: FileTagColor] = [:]
     var onSelectionChange: ((Int) -> Void)?
     private let fileSizeFormatter = FileSizeFormatter()
@@ -729,7 +962,9 @@ private final class FilePaneDataSource: NSObject, NSTableViewDataSource, NSTable
         } else if isExtensionColumn {
             identifier = NSUserInterfaceItemIdentifier("fileItemExtensionCell")
         } else if isModifiedColumn {
-            identifier = NSUserInterfaceItemIdentifier("fileItemModifiedCell")
+            // 更新日時列はフォントサイズごとに異なる幅を持つ。古い幅で
+            // 作られたセルを再利用せず、新しい列幅で生成する。
+            identifier = NSUserInterfaceItemIdentifier("fileItemModifiedCell.\(Int(font.pointSize))")
         } else {
             identifier = NSUserInterfaceItemIdentifier("fileItemNameCell")
         }
@@ -757,7 +992,7 @@ private final class FilePaneDataSource: NSObject, NSTableViewDataSource, NSTable
             isExtensionColumn: isExtensionColumn,
             isModifiedColumn: isModifiedColumn
         )
-        textField.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textField.font = font
         textField.textColor = textColor(
             for: item,
             row: row,
@@ -875,7 +1110,9 @@ private final class FilePaneDataSource: NSObject, NSTableViewDataSource, NSTable
 
     private func configuredColor(for item: FileItem) -> DisplayColor? {
         guard !item.isDirectory, !item.isSpecialItem else { return nil }
-        return fileTypeAssociations.first { $0.matches(fileExtension: item.url.pathExtension) }?.color
+        return FileTypeAssociationResolver(associations: fileTypeAssociations)
+            .association(forFileExtension: item.url.pathExtension)?
+            .color
     }
 
     private func sizeText(for item: FileItem) -> String {

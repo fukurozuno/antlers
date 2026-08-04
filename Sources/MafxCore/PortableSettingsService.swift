@@ -22,7 +22,8 @@ public enum PortableSettingsError: LocalizedError {
 
 public final class PortableSettingsJSONService {
     public static let format = "antlers-settings"
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
+    private static let supportedSchemaVersions: Set<Int> = [1, schemaVersion]
     private static let supportedFormats = Set([format, "mafx-settings"])
 
     private let encoder: JSONEncoder
@@ -104,7 +105,7 @@ public final class PortableSettingsJSONService {
         guard Self.supportedFormats.contains(document.format) else {
             throw PortableSettingsError.unsupportedFormat(document.format)
         }
-        guard document.schemaVersion == Self.schemaVersion else {
+        guard Self.supportedSchemaVersions.contains(document.schemaVersion) else {
             throw PortableSettingsError.unsupportedSchemaVersion(document.schemaVersion)
         }
 
@@ -132,7 +133,9 @@ private struct PortableSettingsV1: Codable {
     var confirmsBeforeMove: Bool?
     var confirmsBeforeTrash: Bool?
     var confirmsBeforeQuit: Bool?
+    var allowsExternalFileDrag: Bool?
     var fileOperationDetailLogLimit: Int?
+    var fileListFontSize: Int?
     var appLanguage: AppLanguage?
     var returnKeyBehavior: ReturnKeyBehavior?
     var incrementalSearchMatchMode: IncrementalSearchMatchMode?
@@ -160,7 +163,9 @@ private struct PortableSettingsV1: Codable {
         confirmsBeforeMove = state.confirmsBeforeMove
         confirmsBeforeTrash = state.confirmsBeforeTrash
         confirmsBeforeQuit = state.confirmsBeforeQuit
+        allowsExternalFileDrag = state.allowsExternalFileDrag
         fileOperationDetailLogLimit = state.fileOperationDetailLogLimit
+        fileListFontSize = state.fileListFontSize
         appLanguage = state.appLanguage
         returnKeyBehavior = state.returnKeyBehavior
         incrementalSearchMatchMode = state.incrementalSearchMatchMode
@@ -192,10 +197,12 @@ private struct PortableSettingsV1: Codable {
             confirmsBeforeMove: confirmsBeforeMove ?? defaultState.confirmsBeforeMove,
             confirmsBeforeTrash: confirmsBeforeTrash ?? defaultState.confirmsBeforeTrash,
             confirmsBeforeQuit: confirmsBeforeQuit ?? defaultState.confirmsBeforeQuit,
+            allowsExternalFileDrag: allowsExternalFileDrag ?? defaultState.allowsExternalFileDrag,
             fileOperationDetailLogLimit: max(
                 0,
                 fileOperationDetailLogLimit ?? defaultState.fileOperationDetailLogLimit
             ),
+            fileListFontSize: FileListFontSize.normalized(fileListFontSize ?? defaultState.fileListFontSize),
             appLanguage: appLanguage ?? defaultState.appLanguage,
             returnKeyBehavior: returnKeyBehavior ?? defaultState.returnKeyBehavior,
             incrementalSearchMatchMode: incrementalSearchMatchMode ?? defaultState.incrementalSearchMatchMode,
@@ -218,6 +225,13 @@ private struct PortableSettingsV1: Codable {
 
     private static func validatedFileTypeAssociations(_ associations: [FileTypeAssociation]) throws -> [FileTypeAssociation] {
         let validated: [FileTypeAssociation] = associations.compactMap { association in
+            if association.matchesOtherExtensions {
+                return FileTypeAssociation.other(
+                    id: association.id,
+                    applicationPath: association.applicationPath,
+                    color: association.color
+                )
+            }
             let extensions = FileTypeAssociation.normalizedExtensions(association.extensions)
             guard !extensions.isEmpty else { return nil }
             return FileTypeAssociation(
@@ -232,6 +246,12 @@ private struct PortableSettingsV1: Codable {
         guard duplicates.isEmpty else {
             throw PortableSettingsError.invalidSettings(
                 "fileTypeAssociations contains duplicate extensions: \(duplicates.joined(separator: ", "))"
+            )
+        }
+
+        guard !FileTypeAssociation.hasDuplicateOtherExtensionsAssociation(in: validated) else {
+            throw PortableSettingsError.invalidSettings(
+                "fileTypeAssociations contains multiple other-extension associations"
             )
         }
 
