@@ -104,6 +104,27 @@ final class KeyBindingTests: XCTestCase {
         XCTAssertEqual(resolver.resolve(KeyStroke(key: "V")), .matched(.previewSelectedFile))
     }
 
+    func testResolverResolvesPreviewPaneCommands() {
+        let resolver = KeymapResolver()
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "V", modifiers: .shift)), .matched(.togglePreviewPane))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "V", modifiers: .option)), .matched(.enterPreviewMode))
+    }
+
+    func testResolverFiltersCommandsByExecutionScope() {
+        let resolver = KeymapResolver()
+        let applicationCommands = Set(CommandID.allCases.filter { $0.executionScope == .application })
+
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "Q"), allowedCommandIDs: applicationCommands),
+            .matched(.quitApplication)
+        )
+        XCTAssertEqual(
+            resolver.resolve(KeyStroke(key: "Tab"), allowedCommandIDs: applicationCommands),
+            .unmatched
+        )
+    }
+
     func testPreviewKeymapResolverResolvesQAsEndPreview() {
         let resolver = PreviewKeymapResolver()
 

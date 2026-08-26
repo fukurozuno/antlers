@@ -121,6 +121,7 @@ private struct PortableSettingsDocument: Codable {
 
 private struct PortableSettingsV1: Codable {
     var showsHiddenFiles: Bool?
+    var showsPreviewPane: Bool?
     var usesAlternatingRowBackgrounds: Bool?
     var showsFileIcons: Bool?
     var showsFileTagColors: Bool?
@@ -139,6 +140,7 @@ private struct PortableSettingsV1: Codable {
     var appLanguage: AppLanguage?
     var returnKeyBehavior: ReturnKeyBehavior?
     var incrementalSearchMatchMode: IncrementalSearchMatchMode?
+    var previewPanePosition: PreviewPanePosition?
     var leftStartupPathMode: StartupPathMode?
     var rightStartupPathMode: StartupPathMode?
     var leftStartupPath: String?
@@ -151,6 +153,7 @@ private struct PortableSettingsV1: Codable {
 
     init(state: SettingsState) {
         showsHiddenFiles = state.showsHiddenFiles
+        showsPreviewPane = state.showsPreviewPane
         usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
         showsFileIcons = state.showsFileIcons
         showsFileTagColors = state.showsFileTagColors
@@ -169,6 +172,7 @@ private struct PortableSettingsV1: Codable {
         appLanguage = state.appLanguage
         returnKeyBehavior = state.returnKeyBehavior
         incrementalSearchMatchMode = state.incrementalSearchMatchMode
+        previewPanePosition = state.previewPanePosition
         leftStartupPathMode = state.leftStartupPathMode
         rightStartupPathMode = state.rightStartupPathMode
         leftStartupPath = state.leftStartupPath
@@ -183,6 +187,7 @@ private struct PortableSettingsV1: Codable {
     func settingsState(defaultState: SettingsState) throws -> SettingsState {
         SettingsState(
             showsHiddenFiles: showsHiddenFiles ?? defaultState.showsHiddenFiles,
+            showsPreviewPane: showsPreviewPane ?? defaultState.showsPreviewPane,
             usesAlternatingRowBackgrounds: usesAlternatingRowBackgrounds
                 ?? defaultState.usesAlternatingRowBackgrounds,
             showsFileIcons: showsFileIcons ?? defaultState.showsFileIcons,
@@ -206,6 +211,7 @@ private struct PortableSettingsV1: Codable {
             appLanguage: appLanguage ?? defaultState.appLanguage,
             returnKeyBehavior: returnKeyBehavior ?? defaultState.returnKeyBehavior,
             incrementalSearchMatchMode: incrementalSearchMatchMode ?? defaultState.incrementalSearchMatchMode,
+            previewPanePosition: previewPanePosition ?? defaultState.previewPanePosition,
             leftStartupPathMode: leftStartupPathMode ?? defaultState.leftStartupPathMode,
             rightStartupPathMode: rightStartupPathMode ?? defaultState.rightStartupPathMode,
             leftStartupPath: leftStartupPath ?? defaultState.leftStartupPath,

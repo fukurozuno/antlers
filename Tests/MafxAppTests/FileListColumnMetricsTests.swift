@@ -49,4 +49,52 @@ final class FileListColumnMetricsTests: XCTestCase {
             40
         )
     }
+
+    func testResponsiveVisibilityHidesExtensionFirst() {
+        let visibility = FileListColumnMetrics.responsiveVisibility(
+            availableColumnWidth: 519,
+            minimumNameColumnWidth: 160,
+            requestedVisibility: .default,
+            extensionColumnWidth: 92,
+            sizeColumnWidth: 92,
+            modificationDateColumnWidth: 176
+        )
+
+        XCTAssertEqual(
+            visibility,
+            FileListColumnVisibility(showsExtension: false, showsSize: true, showsModificationDate: true)
+        )
+    }
+
+    func testResponsiveVisibilityHidesSizeAfterExtension() {
+        let visibility = FileListColumnMetrics.responsiveVisibility(
+            availableColumnWidth: 427,
+            minimumNameColumnWidth: 160,
+            requestedVisibility: .default,
+            extensionColumnWidth: 92,
+            sizeColumnWidth: 92,
+            modificationDateColumnWidth: 176
+        )
+
+        XCTAssertEqual(
+            visibility,
+            FileListColumnVisibility(showsExtension: false, showsSize: false, showsModificationDate: true)
+        )
+    }
+
+    func testResponsiveVisibilityKeepsOnlyNameAtMinimumWidth() {
+        let visibility = FileListColumnMetrics.responsiveVisibility(
+            availableColumnWidth: 335,
+            minimumNameColumnWidth: 160,
+            requestedVisibility: .default,
+            extensionColumnWidth: 92,
+            sizeColumnWidth: 92,
+            modificationDateColumnWidth: 176
+        )
+
+        XCTAssertEqual(
+            visibility,
+            FileListColumnVisibility(showsExtension: false, showsSize: false, showsModificationDate: false)
+        )
+    }
 }

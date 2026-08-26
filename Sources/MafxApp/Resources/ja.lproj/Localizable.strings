@@ -11,8 +11,9 @@
 "pane.sortLabel" = "ソート: %@";
 "pane.pendingKeyPrompt" = "入力済み: %@";
 "pane.search.placeholder" = "検索";
-"pane.wildcardMark.placeholder" = "ワイルドカードマーク";
-"pane.fileMask.placeholder" = "ファイルマスク";
+"pane.wildcardMark.placeholder" = "ワイルドカードマーク（↑↓: 履歴）";
+"pane.fileMask.placeholder" = "ファイルマスク（↑↓: 履歴）";
+"pane.fileMask.active" = "マスク: %@";
 "pane.column.name" = "名前";
 "pane.column.extension" = "拡張子";
 "pane.column.size" = "サイズ";
@@ -108,6 +109,7 @@
 "message.skipReason.conflict" = "同名項目";
 "message.skipReason.sourceIsNotNewer" = "コピー元が新しくありません";
 "message.driveListFailed" = "場所一覧を取得できませんでした: %@";
+"driveList.ejectShortcut" = "⏏  Command+E: 選択中のボリュームをアンマウント";
 "message.ejectUnavailable" = "%@ は取り外せません";
 "message.ejectPaneRelocated" = "%@ を取り外す前にペインを退避しました";
 "message.ejected" = "%@ を取り外しました";
@@ -311,6 +313,18 @@
 "settings.item.returnKeyBehavior" = "Return キーの動作";
 "settings.item.incrementalSearchMatchMode" = "インクリメンタルサーチ";
 "settings.item.showHiddenFiles" = "隠しファイルを表示する";
+"settings.item.showPreviewPane" = "プレビューペインを表示する";
+"settings.item.previewPanePosition" = "プレビューペインの位置";
+"settings.previewPanePosition.right" = "右";
+"settings.previewPanePosition.left" = "左";
+"previewPane.title" = "プレビュー";
+"previewPane.loading" = "プレビューを読み込み中…";
+"previewPane.noSelection" = "項目を選択するとプレビューを表示します。";
+"previewPane.directory" = "ディレクトリの概要";
+"previewPane.directoryDetail" = "%ld 個のディレクトリ · %ld 個のファイル";
+"previewPane.file" = "ファイル";
+"previewPane.unknown" = "不明";
+"previewPane.hidden" = "プレビューモードに入るには、先にプレビューペインを表示してください。";
 "settings.item.useAlternatingRowBackgrounds" = "背景色を交互に切り替える";
 "settings.item.showFileIcons" = "ファイルアイコンを表示する";
 "settings.item.showFileTagColors" = "色タグを表示する";
@@ -372,6 +386,8 @@
 "command.openWithConfiguredApplication" = "指定アプリで開く";
 "message.configuredApplicationNotFound" = "指定アプリ %@ で開けませんでした";
 "command.previewSelectedFile" = "選択中ファイルをプレビュー";
+"command.togglePreviewPane" = "プレビューペインを表示／非表示";
+"command.enterPreviewMode" = "プレビューモードに入る";
 "command.moveToParentDirectory" = "親ディレクトリへ移動";
 "command.toggleMark" = "マークを切り替える";
 "command.toggleMarkReverse" = "マークを切り替えて前へ移動";

@@ -8,6 +8,9 @@ public protocol SettingsRepository {
 public final class UserDefaultsSettingsRepository: SettingsRepository {
     private enum Key {
         static let showsHiddenFiles = "settings.showsHiddenFiles"
+        static let showsPreviewPane = "settings.showsPreviewPane"
+        static let previewPanePosition = "settings.previewPanePosition"
+        static let previewPaneWidthRatio = "settings.previewPaneWidthRatio"
         static let usesAlternatingRowBackgrounds = "settings.usesAlternatingRowBackgrounds"
         static let showsFileIcons = "settings.showsFileIcons"
         static let showsFileTagColors = "settings.showsFileTagColors"
@@ -35,6 +38,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         static let rightPanePath = "pane.right.currentPath"
         static let leftPaneNavigationHistory = "pane.left.navigationHistory"
         static let rightPaneNavigationHistory = "pane.right.navigationHistory"
+        static let filePatternHistory = "settings.filePatternHistory"
         static let leftPaneSortDescriptor = "pane.left.sortDescriptor"
         static let rightPaneSortDescriptor = "pane.right.sortDescriptor"
         static let keyBindingSet = "settings.keyBindingSet"
@@ -57,6 +61,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
     public func load() -> AppSettings {
         AppSettings(
             showsHiddenFiles: bool(forKey: Key.showsHiddenFiles, defaultValue: defaultSettings.showsHiddenFiles),
+            showsPreviewPane: bool(forKey: Key.showsPreviewPane, defaultValue: defaultSettings.showsPreviewPane),
             usesAlternatingRowBackgrounds: bool(
                 forKey: Key.usesAlternatingRowBackgrounds,
                 defaultValue: defaultSettings.usesAlternatingRowBackgrounds
@@ -120,6 +125,14 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
                 forKey: Key.incrementalSearchMatchMode,
                 defaultValue: defaultSettings.incrementalSearchMatchMode
             ),
+            previewPanePosition: previewPanePosition(
+                forKey: Key.previewPanePosition,
+                defaultValue: defaultSettings.previewPanePosition
+            ),
+            previewPaneWidthRatio: previewPaneWidthRatio(
+                forKey: Key.previewPaneWidthRatio,
+                defaultValue: defaultSettings.previewPaneWidthRatio
+            ),
             leftStartupPathMode: startupPathMode(
                 forKey: Key.leftStartupPathMode,
                 defaultValue: defaultSettings.leftStartupPathMode
@@ -141,6 +154,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
                 forKey: Key.rightPaneNavigationHistory,
                 defaultValue: defaultSettings.rightPaneNavigationHistory
             ),
+            filePatternHistory: loadFilePatternHistory(),
             leftPaneSortDescriptor: loadSortDescriptor(
                 forKey: Key.leftPaneSortDescriptor,
                 defaultValue: defaultSettings.leftPaneSortDescriptor
@@ -158,6 +172,9 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
 
     public func save(_ settings: AppSettings) {
         userDefaults.set(settings.showsHiddenFiles, forKey: Key.showsHiddenFiles)
+        userDefaults.set(settings.showsPreviewPane, forKey: Key.showsPreviewPane)
+        userDefaults.set(settings.previewPanePosition.rawValue, forKey: Key.previewPanePosition)
+        userDefaults.set(settings.previewPaneWidthRatio, forKey: Key.previewPaneWidthRatio)
         userDefaults.set(settings.usesAlternatingRowBackgrounds, forKey: Key.usesAlternatingRowBackgrounds)
         userDefaults.set(settings.showsFileIcons, forKey: Key.showsFileIcons)
         userDefaults.set(settings.showsFileTagColors, forKey: Key.showsFileTagColors)
@@ -194,6 +211,9 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         }
         if let data = try? JSONEncoder().encode(settings.rightPaneNavigationHistory) {
             userDefaults.set(data, forKey: Key.rightPaneNavigationHistory)
+        }
+        if let data = try? JSONEncoder().encode(settings.filePatternHistory) {
+            userDefaults.set(data, forKey: Key.filePatternHistory)
         }
         if let data = try? JSONEncoder().encode(settings.leftPaneSortDescriptor) {
             userDefaults.set(data, forKey: Key.leftPaneSortDescriptor)
@@ -284,6 +304,22 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         return mode
     }
 
+    private func previewPanePosition(
+        forKey key: String,
+        defaultValue: PreviewPanePosition
+    ) -> PreviewPanePosition {
+        guard let value = userDefaults.string(forKey: key),
+              let position = PreviewPanePosition(rawValue: value) else {
+            return defaultValue
+        }
+        return position
+    }
+
+    private func previewPaneWidthRatio(forKey key: String, defaultValue: Double) -> Double {
+        guard userDefaults.object(forKey: key) != nil else { return defaultValue }
+        return AppSettings.normalizedPreviewPaneWidthRatio(userDefaults.double(forKey: key))
+    }
+
     private func loadJumpPathEntries() -> [JumpPathEntry] {
         guard let data = userDefaults.data(forKey: Key.jumpPathEntries),
               let entries = try? JSONDecoder().decode([JumpPathEntry].self, from: data) else {
@@ -297,6 +333,15 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         guard let data = userDefaults.data(forKey: key),
               let history = try? JSONDecoder().decode(NavigationHistory.self, from: data) else {
             return defaultValue
+        }
+
+        return history
+    }
+
+    private func loadFilePatternHistory() -> FilePatternHistory {
+        guard let data = userDefaults.data(forKey: Key.filePatternHistory),
+              let history = try? JSONDecoder().decode(FilePatternHistory.self, from: data) else {
+            return defaultSettings.filePatternHistory
         }
 
         return history

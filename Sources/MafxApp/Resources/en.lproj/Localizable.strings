@@ -11,8 +11,9 @@
 "pane.sortLabel" = "Sort: %@";
 "pane.pendingKeyPrompt" = "Entered: %@";
 "pane.search.placeholder" = "Search";
-"pane.wildcardMark.placeholder" = "Wildcard mark";
-"pane.fileMask.placeholder" = "File mask";
+"pane.wildcardMark.placeholder" = "Wildcard mark (↑↓: history)";
+"pane.fileMask.placeholder" = "File mask (↑↓: history)";
+"pane.fileMask.active" = "Mask: %@";
 "pane.column.name" = "Name";
 "pane.column.extension" = "Extension";
 "pane.column.size" = "Size";
@@ -108,6 +109,7 @@
 "message.skipReason.conflict" = "same-name item";
 "message.skipReason.sourceIsNotNewer" = "source is not newer";
 "message.driveListFailed" = "Could not load locations: %@";
+"driveList.ejectShortcut" = "⏏  Command+E: Eject selected volume";
 "message.ejectUnavailable" = "%@ cannot be ejected";
 "message.ejectPaneRelocated" = "Moved the pane out of %@ before ejecting";
 "message.ejected" = "Ejected %@";
@@ -311,6 +313,18 @@
 "settings.item.returnKeyBehavior" = "Return key behavior";
 "settings.item.incrementalSearchMatchMode" = "Incremental search";
 "settings.item.showHiddenFiles" = "Show hidden files";
+"settings.item.showPreviewPane" = "Show preview pane";
+"settings.item.previewPanePosition" = "Preview pane position";
+"settings.previewPanePosition.right" = "Right";
+"settings.previewPanePosition.left" = "Left";
+"previewPane.title" = "Preview";
+"previewPane.loading" = "Loading preview…";
+"previewPane.noSelection" = "Select an item to preview it.";
+"previewPane.directory" = "Directory overview";
+"previewPane.directoryDetail" = "%ld folders · %ld files";
+"previewPane.file" = "File";
+"previewPane.unknown" = "Unknown";
+"previewPane.hidden" = "Show the preview pane before entering preview mode.";
 "settings.item.useAlternatingRowBackgrounds" = "Use alternating row backgrounds";
 "settings.item.showFileIcons" = "Show file icons";
 "settings.item.showFileTagColors" = "Show file tag colors";
@@ -372,6 +386,8 @@
 "command.openWithConfiguredApplication" = "Open with configured application";
 "message.configuredApplicationNotFound" = "Could not open with configured application: %@";
 "command.previewSelectedFile" = "Preview selected file";
+"command.togglePreviewPane" = "Show/hide preview pane";
+"command.enterPreviewMode" = "Enter preview mode";
 "command.moveToParentDirectory" = "Move to parent directory";
 "command.toggleMark" = "Toggle mark";
 "command.toggleMarkReverse" = "Toggle mark and move up";

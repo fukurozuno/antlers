@@ -480,7 +480,7 @@ public struct PaneState: Equatable {
         endIncrementalSearch()
         endWildcardMark()
         isFileMaskInputActive = true
-        fileMaskQuery = fileMaskPattern
+        fileMaskQuery = ""
     }
 
     public mutating func endFileMaskInput() {

@@ -764,6 +764,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         dataSource.keyBindingSet = state.keyBindingSet
         dataSource.displayTheme = state.displayThemeSet.selectedTheme
         dataSource.fileTypeAssociations = state.fileTypeAssociations
+        dataSource.showsPreviewPane = state.showsPreviewPane
         dataSource.showsHiddenFiles = state.showsHiddenFiles
         dataSource.usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
         dataSource.showsFileIcons = state.showsFileIcons
@@ -783,6 +784,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         dataSource.appLanguage = state.appLanguage
         dataSource.returnKeyBehavior = state.returnKeyBehavior
         dataSource.incrementalSearchMatchMode = state.incrementalSearchMatchMode
+        dataSource.previewPanePosition = state.previewPanePosition
         dataSource.leftStartupPathMode = state.leftStartupPathMode
         dataSource.rightStartupPathMode = state.rightStartupPathMode
         dataSource.leftStartupPath = state.leftStartupPath
@@ -899,6 +901,14 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
 
     private func postChangesIfNeeded(from oldState: SettingsState, to newState: SettingsState) {
         var userInfo: [String: Any] = [:]
+
+        if oldState.showsPreviewPane != newState.showsPreviewPane {
+            userInfo[SettingsNotificationKey.showsPreviewPane] = newState.showsPreviewPane
+        }
+
+        if oldState.previewPanePosition != newState.previewPanePosition {
+            userInfo[SettingsNotificationKey.previewPanePosition] = newState.previewPanePosition
+        }
 
         if oldState.showsHiddenFiles != newState.showsHiddenFiles {
             userInfo[SettingsNotificationKey.showsHiddenFiles] = newState.showsHiddenFiles
@@ -1294,6 +1304,16 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         if let showsHiddenFiles = notification.userInfo?[SettingsNotificationKey.showsHiddenFiles] as? Bool {
             committedState.setToggle(.showHiddenFiles, isOn: showsHiddenFiles)
             state.setToggle(.showHiddenFiles, isOn: showsHiddenFiles)
+        }
+
+        if let showsPreviewPane = notification.userInfo?[SettingsNotificationKey.showsPreviewPane] as? Bool {
+            committedState.setToggle(.showPreviewPane, isOn: showsPreviewPane)
+            state.setToggle(.showPreviewPane, isOn: showsPreviewPane)
+        }
+
+        if let previewPanePosition = notification.userInfo?[SettingsNotificationKey.previewPanePosition] as? PreviewPanePosition {
+            committedState.setChoice(.previewPanePosition, to: .previewPanePosition(previewPanePosition))
+            state.setChoice(.previewPanePosition, to: .previewPanePosition(previewPanePosition))
         }
 
         if let usesAlternatingRowBackgrounds = notification.userInfo?[SettingsNotificationKey.usesAlternatingRowBackgrounds] as? Bool {
@@ -2259,6 +2279,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     var fileTypeAssociations: [FileTypeAssociation] = []
     var keyBindingSet: KeyBindingSet = .default
     var displayTheme: DisplayTheme = .light
+    var showsPreviewPane = false
     var showsHiddenFiles = false
     var usesAlternatingRowBackgrounds = false
     var showsFileIcons = true
@@ -2276,6 +2297,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     var fileOperationDetailLogLimit = 10
     var fileListFontSize = FileListFontSize.standard
     var appLanguage: AppLanguage = .system
+    var previewPanePosition: PreviewPanePosition = .right
     var returnKeyBehavior: ReturnKeyBehavior = .openSelectedDirectory
     var incrementalSearchMatchMode: IncrementalSearchMatchMode = .prefix
     var leftStartupPathMode: StartupPathMode = .previous
@@ -2678,6 +2700,8 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
 
     private func checkboxState(for item: SettingsItem) -> NSControl.StateValue {
         switch item.toggleID {
+        case .showPreviewPane:
+            return showsPreviewPane ? .on : .off
         case .showHiddenFiles:
             return showsHiddenFiles ? .on : .off
         case .useAlternatingRowBackgrounds:
@@ -2753,6 +2777,14 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         popupButton.isHidden = false
         popupButton.removeAllItems()
         switch choiceID {
+        case .previewPanePosition:
+            for position in PreviewPanePosition.allCases {
+                popupButton.addItem(withTitle: position.localizedTitle)
+                popupButton.lastItem?.representedObject = SettingsChoiceValue.previewPanePosition(position)
+            }
+            if let selectedIndex = PreviewPanePosition.allCases.firstIndex(of: previewPanePosition) {
+                popupButton.selectItem(at: selectedIndex)
+            }
         case .appLanguage:
             for language in AppLanguage.allCases {
                 popupButton.addItem(withTitle: language.localizedTitle)
@@ -2809,7 +2841,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
             textField.stringValue = rightStartupPath
             textField.isEnabled = rightStartupPathMode == .specified
             textField.isHidden = false
-        case .appLanguage, .returnKeyBehavior, .incrementalSearchMatchMode:
+        case .appLanguage, .returnKeyBehavior, .incrementalSearchMatchMode, .previewPanePosition:
             textField.isHidden = true
         }
     }

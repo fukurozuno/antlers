@@ -22,6 +22,7 @@ final class SettingsRepositoryTests: XCTestCase {
     func testLoadReturnsDefaultSettingsWhenUserDefaultsIsEmpty() {
         let defaultSettings = AppSettings(
             showsHiddenFiles: true,
+            showsPreviewPane: true,
             usesAlternatingRowBackgrounds: true,
             showsFileIcons: false,
             showsFileTagColors: false,
@@ -39,6 +40,8 @@ final class SettingsRepositoryTests: XCTestCase {
             appLanguage: .japanese,
             returnKeyBehavior: .previewFileOrOpenDirectory,
             incrementalSearchMatchMode: .exact,
+            previewPanePosition: .left,
+            previewPaneWidthRatio: 0.44,
             leftStartupPathMode: .specified,
             rightStartupPathMode: .previous,
             leftStartupPath: "/tmp/start-left",
@@ -49,6 +52,7 @@ final class SettingsRepositoryTests: XCTestCase {
             rightPanePath: "/tmp/right",
             leftPaneNavigationHistory: NavigationHistory(paths: ["/tmp/left"], currentIndex: 0),
             rightPaneNavigationHistory: NavigationHistory(paths: ["/tmp/right"], currentIndex: 0),
+            filePatternHistory: FilePatternHistory(entries: ["*.swift", "*.md"]),
             leftPaneSortDescriptor: FileSortDescriptor(criterion: .byteSize, direction: .descending),
             rightPaneSortDescriptor: FileSortDescriptor(criterion: .modificationDate, direction: .ascending),
             displayThemeSet: DisplayThemeSet(selectedThemeID: DisplayTheme.dark.id)
@@ -67,6 +71,7 @@ final class SettingsRepositoryTests: XCTestCase {
         keyBindingSet.addSequence(KeyBindingSequence(KeyStroke(key: "X")), to: .copyMarkedItems)
         let settings = AppSettings(
             showsHiddenFiles: true,
+            showsPreviewPane: true,
             usesAlternatingRowBackgrounds: true,
             showsFileIcons: false,
             showsFileTagColors: false,
@@ -84,6 +89,8 @@ final class SettingsRepositoryTests: XCTestCase {
             appLanguage: .english,
             returnKeyBehavior: .disabled,
             incrementalSearchMatchMode: .contains,
+            previewPanePosition: .left,
+            previewPaneWidthRatio: 0.44,
             leftStartupPathMode: .specified,
             rightStartupPathMode: .specified,
             leftStartupPath: "/tmp/./start-left",
@@ -96,6 +103,7 @@ final class SettingsRepositoryTests: XCTestCase {
             rightPanePath: "/tmp/right",
             leftPaneNavigationHistory: NavigationHistory(paths: ["/tmp", "/tmp/left"], currentIndex: 1),
             rightPaneNavigationHistory: NavigationHistory(paths: ["/tmp", "/tmp/right"], currentIndex: 1),
+            filePatternHistory: FilePatternHistory(entries: ["*.swift", "*.md"]),
             leftPaneSortDescriptor: FileSortDescriptor(criterion: .fileExtension, direction: .ascending),
             rightPaneSortDescriptor: FileSortDescriptor(criterion: .byteSize, direction: .descending),
             keyBindingSet: keyBindingSet,

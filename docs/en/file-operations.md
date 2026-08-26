@@ -33,3 +33,9 @@ Potential overwrites require explicit confirmation. Deleting moves items to Tras
 Use `P, 1`, `P, 2`, and `P, 3` to copy file names, parent directory paths, or full paths as multi-line text. Targets follow the same rule as file operations: marked items when present, otherwise the selected item.
 
 Use `_` or `Shift+_` to show the context menu. The menu provides Open, Open With, Reveal in Finder, Copy Path, Copy, Move, Rename, Copy with New Name, and Create Folder.
+
+## Drag files to other applications
+
+Enable **Allow file drag to other applications** in General settings to drag files from a file list into another application. The drag provides copied file URLs and never moves items within Antlers.
+
+Starting a drag from a marked item includes all marked items. Starting from an unmarked item includes only that item.

@@ -348,8 +348,20 @@ final class SettingsStateTests: XCTestCase {
         XCTAssertTrue(generalToggleIDs.contains(.showFileIcons))
         XCTAssertTrue(generalToggleIDs.contains(.showFileTagColors))
         XCTAssertTrue(generalToggleIDs.contains(.showFileExtensionsSeparately))
+        XCTAssertTrue(generalToggleIDs.contains(.showPreviewPane))
         XCTAssertEqual(state.tabs[0].items[0].choiceID, .leftStartupPathMode)
         XCTAssertEqual(state.tabs[0].items[1].choiceID, .rightStartupPathMode)
+    }
+
+    func testPreviewPaneDefaultsToOffAndPositionDefaultsToRight() {
+        var state = SettingsState()
+
+        XCTAssertFalse(state.showsPreviewPane)
+        XCTAssertEqual(state.previewPanePosition, .right)
+        state.setToggle(.showPreviewPane, isOn: true)
+        state.setChoice(.previewPanePosition, to: .previewPanePosition(.left))
+        XCTAssertTrue(state.showsPreviewPane)
+        XCTAssertEqual(state.previewPanePosition, .left)
     }
 
     func testAppLanguageDefaultsToSystem() {

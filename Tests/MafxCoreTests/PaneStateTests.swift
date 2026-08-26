@@ -910,6 +910,9 @@ final class PaneStateTests: XCTestCase {
         state.updateFileMaskQuery("alpha")
         state.applyFileMaskAndEnd()
         state.beginFileMaskInput()
+
+        XCTAssertEqual(state.fileMaskQuery, "")
+
         state.updateFileMaskQuery("beta")
         state.endFileMaskInput()
 

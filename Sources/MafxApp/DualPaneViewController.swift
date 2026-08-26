@@ -50,6 +50,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private var showsFileExtensionsSeparately = true
     private var showsMultiStrokeKeyCandidates = true
     private var returnKeyBehavior: ReturnKeyBehavior
+    private var showsPreviewPane = false
+    private var previewPanePosition: PreviewPanePosition = .right
+    private var isInPreviewMode = false
+    private var previewPaneWidthRatio: CGFloat = 0.32
+    private var persistedPreviewPaneWidthRatio: CGFloat = 0.32
     private var incrementalSearchMatchMode: IncrementalSearchMatchMode
     private var keyBindingSet: KeyBindingSet
     private var keymapResolver: KeymapResolver
@@ -58,6 +63,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private var fileTypeAssociations: [FileTypeAssociation] = []
     private var fileTypeColorScope: FileTypeColorScope = .fileName
     private var jumpPathEntries: [JumpPathEntry] = []
+    private var filePatternHistory = FilePatternHistory()
     private let jumpPathPanelController = FloatingListPanelController()
     private let driveListPanelController = FloatingListPanelController()
     private let tagListPanelController = FloatingListPanelController()
@@ -65,16 +71,23 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private let sameNamedFileMarkPanelController = FloatingListPanelController()
     private let keyCandidatePanelController = KeyCandidatePanelController()
     private var isApplyingPaneWidth = false
+    private var isApplyingPreviewPaneWidth = false
     private var isApplyingMessageWindowHeight = false
+    private var isRestoringInitialSplitLayout = true
     private var didApplyInitialPaneWidth = false
+    private var didApplyInitialPreviewPaneWidth = false
     private var didApplyInitialMessageWindowHeight = false
     private var fileListLayoutNeedsApplication = true
+    private var forceFileListLayoutApplication = false
     private var isFileListLayoutApplicationScheduled = false
+    private var isApplyingSynchronousFileListLayout = false
 
     private let leftPaneView = FilePaneView(title: L10n.string("pane.left"))
     private let rightPaneView = FilePaneView(title: L10n.string("pane.right"))
     private let rootSplitView = NSSplitView()
     private let splitView = NSSplitView()
+    private let contentSplitView = NSSplitView()
+    private let previewPaneView = PreviewPaneView()
     private let messageLogView = MessageLogView()
     private var themedBackgroundColor: NSColor {
         displayThemeSet.selectedTheme.usesContentTransparency ? .clear : .windowBackgroundColor
@@ -110,6 +123,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         showsFileExtensionsSeparately = settings.showsFileExtensionsSeparately
         showsMultiStrokeKeyCandidates = settings.showsMultiStrokeKeyCandidates
         returnKeyBehavior = settings.returnKeyBehavior
+        showsPreviewPane = settings.showsPreviewPane
+        previewPanePosition = settings.previewPanePosition
+        previewPaneWidthRatio = CGFloat(settings.previewPaneWidthRatio)
+        persistedPreviewPaneWidthRatio = previewPaneWidthRatio
         incrementalSearchMatchMode = settings.incrementalSearchMatchMode
         keyBindingSet = settings.keyBindingSet
         keymapResolver = KeymapResolver(keyBindingSet: settings.keyBindingSet)
@@ -117,6 +134,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         fileTypeAssociations = settings.fileTypeAssociations
         fileTypeColorScope = settings.fileTypeColorScope
         jumpPathEntries = settings.jumpPathEntries
+        filePatternHistory = settings.filePatternHistory
         super.init(nibName: nil, bundle: nil)
         keyCandidatePanelController.onSelect = { [weak self] candidate in
             self?.executeKeyCandidate(candidate)
@@ -145,7 +163,14 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         splitView.addArrangedSubview(leftPaneView)
         splitView.addArrangedSubview(rightPaneView)
 
-        rootSplitView.addArrangedSubview(splitView)
+        contentSplitView.isVertical = true
+        contentSplitView.dividerStyle = .thin
+        contentSplitView.delegate = self
+        contentSplitView.translatesAutoresizingMaskIntoConstraints = false
+        contentSplitView.addArrangedSubview(splitView)
+        updatePreviewPaneArrangement()
+
+        rootSplitView.addArrangedSubview(contentSplitView)
         rootSplitView.addArrangedSubview(messageLogView)
 
         container.addSubview(rootSplitView)
@@ -189,6 +214,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     override func viewDidLayout() {
         super.viewDidLayout()
         applyPaneWidthRatio()
+        applyPreviewPaneWidth()
         applyMessageWindowHeightRatio()
     }
 
@@ -196,10 +222,16 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         NotificationCenter.default.removeObserver(self)
     }
 
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        restoreInitialSplitLayout()
+        render()
+        applyFileListLayoutSynchronously()
+    }
+
     override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(self)
-        requestFileListLayoutApplication()
     }
 
     override var acceptsFirstResponder: Bool {
@@ -207,8 +239,19 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
+        if let stroke = KeyStroke(event: event),
+           keyBindingSet.sequences(for: .togglePreviewPane).contains(where: { $0.strokes == [stroke] }) {
+            handleMainPaneCommand(.togglePreviewPane)
+            return
+        }
+
         if activePaneState.isPreviewing {
             handlePreviewKey(event)
+            return
+        }
+
+        if isInPreviewMode {
+            handlePreviewModeKey(event)
             return
         }
 
@@ -280,13 +323,23 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func showKeyCandidates(for pendingKeySequence: PendingKeySequence) {
+        showKeyCandidates(for: pendingKeySequence, allowedCommandIDs: nil)
+    }
+
+    private func showKeyCandidates(
+        for pendingKeySequence: PendingKeySequence,
+        allowedCommandIDs: Set<CommandID>?
+    ) {
         guard showsMultiStrokeKeyCandidates else {
             keyCandidatePanelController.dismiss()
             return
         }
 
         keyCandidatePanelController.present(
-            candidates: keymapResolver.candidates(for: pendingKeySequence),
+            candidates: keymapResolver.candidates(
+                for: pendingKeySequence,
+                allowedCommandIDs: allowedCommandIDs
+            ),
             theme: displayThemeSet.selectedTheme,
             relativeTo: view.window
         )
@@ -356,6 +409,21 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             openSelectedItemWithConfiguredApplication()
         case .previewSelectedFile:
             beginActivePanePreview()
+        case .togglePreviewPane:
+            let updatedShowsPreviewPane = !showsPreviewPane
+            NotificationCenter.default.post(
+                name: .settingsDidChange,
+                object: self,
+                userInfo: [SettingsNotificationKey.showsPreviewPane: updatedShowsPreviewPane]
+            )
+        case .enterPreviewMode:
+            guard showsPreviewPane else {
+                appendMessage(L10n.string("previewPane.hidden"), in: activePane)
+                render()
+                return
+            }
+            isInPreviewMode = true
+            render()
         case .moveToParentDirectory:
             let didMove = mutateActivePane {
                 $0.moveToParentDirectory(
@@ -546,6 +614,49 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             render()
         case .matched, .awaitingNextStroke(_), .unmatched:
             keymapResolver.resetPendingStrokes()
+        }
+    }
+
+    private func handlePreviewModeKey(_ event: NSEvent) {
+        if event.keyCode == AppKeyCode.escape {
+            isInPreviewMode = false
+            cancelPendingKeySequence()
+            render()
+            return
+        }
+
+        guard let stroke = KeyStroke(event: event) else { return }
+        if stroke == KeyStroke(key: "V", modifiers: .option) {
+            isInPreviewMode = false
+            cancelPendingKeySequence()
+            render()
+            return
+        }
+        if stroke == KeyStroke(key: "Left", modifiers: .option) {
+            let delta: CGFloat = previewPanePosition == .left ? -0.05 : 0.05
+            adjustPreviewPaneWidth(by: delta)
+        } else if stroke == KeyStroke(key: "Right", modifiers: .option) {
+            let delta: CGFloat = previewPanePosition == .left ? 0.05 : -0.05
+            adjustPreviewPaneWidth(by: delta)
+        } else {
+            resolveApplicationCommandInPreviewMode(stroke)
+        }
+    }
+
+    private func resolveApplicationCommandInPreviewMode(_ stroke: KeyStroke) {
+        let allowedCommandIDs = Set(CommandID.allCases.filter { $0.executionScope == .application })
+        switch keymapResolver.resolve(stroke, allowedCommandIDs: allowedCommandIDs) {
+        case .matched(let commandID):
+            pendingKeySequence = nil
+            keyCandidatePanelController.dismiss()
+            handleMainPaneCommand(commandID)
+        case .awaitingNextStroke(let pendingKeySequence):
+            self.pendingKeySequence = pendingKeySequence
+            showKeyCandidates(for: pendingKeySequence, allowedCommandIDs: allowedCommandIDs)
+            render()
+        case .unmatched:
+            pendingKeySequence = nil
+            keyCandidatePanelController.dismiss()
         }
     }
 
@@ -748,6 +859,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
         if let showsFileExtensionsSeparately = notification.userInfo?[SettingsNotificationKey.showsFileExtensionsSeparately] as? Bool {
             self.showsFileExtensionsSeparately = showsFileExtensionsSeparately
+            requestFileListLayoutApplication(force: true)
         }
 
         if let showsMultiStrokeKeyCandidates = notification.userInfo?[SettingsNotificationKey.showsMultiStrokeKeyCandidates] as? Bool {
@@ -811,6 +923,23 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
         if let returnKeyBehavior = notification.userInfo?[SettingsNotificationKey.returnKeyBehavior] as? ReturnKeyBehavior {
             self.returnKeyBehavior = returnKeyBehavior
+        }
+
+        if let showsPreviewPane = notification.userInfo?[SettingsNotificationKey.showsPreviewPane] as? Bool {
+            self.showsPreviewPane = showsPreviewPane
+            if !showsPreviewPane { isInPreviewMode = false }
+            updatePreviewPaneArrangement()
+        }
+
+        if let previewPanePosition = notification.userInfo?[SettingsNotificationKey.previewPanePosition] as? PreviewPanePosition {
+            self.previewPanePosition = previewPanePosition
+            updatePreviewPaneArrangement()
+        }
+
+        if let previewPaneWidthRatio = notification.userInfo?[SettingsNotificationKey.previewPaneWidthRatio] as? Double {
+            self.previewPaneWidthRatio = CGFloat(AppSettings.normalizedPreviewPaneWidthRatio(previewPaneWidthRatio))
+            persistedPreviewPaneWidthRatio = self.previewPaneWidthRatio
+            applyPreviewPaneWidth()
         }
 
         if let incrementalSearchMatchMode = notification.userInfo?[SettingsNotificationKey.incrementalSearchMatchMode] as? IncrementalSearchMatchMode {
@@ -971,6 +1100,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                     let query = state.wildcardMarkQuery
                     state.markWildcardMatchesAndEnd()
                     if !query.isEmpty {
+                        recordFilePattern(query)
                         return L10n.format("message.wildcardMarkApplied", query)
                     }
                 } else {
@@ -978,7 +1108,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 }
             } else if state.isFileMaskInputActive {
                 if shouldCommit {
+                    let query = state.fileMaskQuery
                     state.applyFileMaskAndEnd()
+                    recordFilePattern(query)
                     return state.fileMaskPattern.isEmpty
                         ? L10n.string("message.fileMaskCleared")
                         : L10n.format("message.fileMaskApplied", state.fileMaskPattern)
@@ -997,6 +1129,20 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         }
         view.window?.makeFirstResponder(self)
         render()
+    }
+
+    private func recordFilePattern(_ pattern: String) {
+        let previousHistory = filePatternHistory
+        filePatternHistory.record(pattern)
+        guard filePatternHistory != previousHistory else {
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .filePatternHistoryDidChange,
+            object: self,
+            userInfo: [SettingsNotificationKey.filePatternHistory: filePatternHistory]
+        )
     }
 
     private func syncPanePathToOppositeDirection(isReversed: Bool) {
@@ -2589,6 +2735,88 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         applyPaneWidthRatio()
     }
 
+    private func updatePreviewPaneArrangement() {
+        if !showsPreviewPane {
+            if contentSplitView.arrangedSubviews.contains(previewPaneView) {
+                previewPaneView.resetPresentation()
+                contentSplitView.removeArrangedSubview(previewPaneView)
+                previewPaneView.removeFromSuperview()
+            }
+            requestPreviewPaneLayout()
+            return
+        }
+
+        if contentSplitView.arrangedSubviews.contains(previewPaneView) {
+            previewPaneView.resetPresentation()
+            contentSplitView.removeArrangedSubview(previewPaneView)
+            previewPaneView.removeFromSuperview()
+        }
+        let index = previewPanePosition == .left ? 0 : 1
+        contentSplitView.insertArrangedSubview(previewPaneView, at: index)
+        applyPreviewPaneWidth()
+        requestPreviewPaneLayout()
+    }
+
+    private func requestPreviewPaneLayout() {
+        guard isViewLoaded else { return }
+
+        view.needsLayout = true
+        contentSplitView.needsLayout = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.view.layoutSubtreeIfNeeded()
+            self.contentSplitView.adjustSubviews()
+            self.applyPreviewPaneWidth()
+            self.applyMessageWindowHeightRatio()
+            self.view.layoutSubtreeIfNeeded()
+            self.requestFileListLayoutApplication(force: true)
+            self.render()
+        }
+    }
+
+    private func adjustPreviewPaneWidth(by delta: CGFloat) {
+        previewPaneWidthRatio = min(0.55, max(0.2, previewPaneWidthRatio + delta))
+        applyPreviewPaneWidth()
+        persistPreviewPaneWidthRatio()
+    }
+
+    private func applyPreviewPaneWidth() {
+        guard showsPreviewPane, contentSplitView.arrangedSubviews.count == 2 else { return }
+        let availableWidth = contentSplitView.bounds.width - contentSplitView.dividerThickness
+        guard availableWidth > 0 else { return }
+        isApplyingPreviewPaneWidth = true
+        let position: CGFloat = previewPanePosition == .left
+            ? availableWidth * previewPaneWidthRatio
+            : availableWidth * (1 - previewPaneWidthRatio)
+        contentSplitView.setPosition(position, ofDividerAt: 0)
+        isApplyingPreviewPaneWidth = false
+        didApplyInitialPreviewPaneWidth = true
+    }
+
+    private func updatePreviewPaneWidthFromSplitView() {
+        guard showsPreviewPane, !isApplyingPreviewPaneWidth, !isRestoringInitialSplitLayout else { return }
+        let availableWidth = contentSplitView.bounds.width - contentSplitView.dividerThickness
+        guard availableWidth > 0 else { return }
+
+        guard didApplyInitialPreviewPaneWidth else {
+            applyPreviewPaneWidth()
+            return
+        }
+
+        previewPaneWidthRatio = min(0.55, max(0.2, previewPaneView.frame.width / availableWidth))
+        persistPreviewPaneWidthRatio()
+    }
+
+    private func persistPreviewPaneWidthRatio() {
+        guard abs(previewPaneWidthRatio - persistedPreviewPaneWidthRatio) > 0.0001 else { return }
+        persistedPreviewPaneWidthRatio = previewPaneWidthRatio
+        NotificationCenter.default.post(
+            name: .settingsDidChange,
+            object: self,
+            userInfo: [SettingsNotificationKey.previewPaneWidthRatio: Double(previewPaneWidthRatio)]
+        )
+    }
+
     private func adjustMessageWindowDivider(by delta: Double) {
         leftState.adjustMessageWindowHeightRatio(by: delta)
         rightState.setMessageWindowHeightRatio(leftState.messageWindowHeightRatio)
@@ -2597,7 +2825,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func updatePaneWidthRatioFromSplitView() {
-        guard !isApplyingPaneWidth else {
+        guard !isApplyingPaneWidth, !isRestoringInitialSplitLayout else {
             return
         }
 
@@ -2616,7 +2844,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func updateMessageWindowHeightRatioFromSplitView() {
-        guard !isApplyingMessageWindowHeight else {
+        guard !isApplyingMessageWindowHeight, !isRestoringInitialSplitLayout else {
             return
         }
 
@@ -2656,6 +2884,15 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         rootSplitView.setPosition(availableHeight * (1.0 - leftState.messageWindowHeightRatio), ofDividerAt: 0)
         isApplyingMessageWindowHeight = false
         didApplyInitialMessageWindowHeight = true
+    }
+
+    private func restoreInitialSplitLayout() {
+        view.layoutSubtreeIfNeeded()
+        applyPaneWidthRatio()
+        applyPreviewPaneWidth()
+        applyMessageWindowHeightRatio()
+        view.layoutSubtreeIfNeeded()
+        isRestoringInitialSplitLayout = false
     }
 
     private func appendMessage(_ message: String, in pane: ActivePane) {
@@ -2759,8 +2996,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         applyWindowTheme()
         // フォント設定に応じた列レイアウトを適用する前に、ペイン幅を確定する。
         applyPaneWidthRatio()
+        applyPreviewPaneWidth()
         applyMessageWindowHeightRatio()
-        leftPaneView.render(
+        let leftSearchInputVisibilityChanged = leftPaneView.render(
             state: leftState,
             isActive: activePane == .left,
             title: L10n.string("pane.left"),
@@ -2771,10 +3009,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             showsFileExtensionsSeparately: showsFileExtensionsSeparately,
             fileTypeAssociations: fileTypeAssociations,
             fileTypeColorScope: fileTypeColorScope,
+            filePatternHistory: filePatternHistory.entries,
             theme: displayThemeSet.selectedTheme,
             preservesScrollPosition: pane == .left
         )
-        rightPaneView.render(
+        let rightSearchInputVisibilityChanged = rightPaneView.render(
             state: rightState,
             isActive: activePane == .right,
             title: L10n.string("pane.right"),
@@ -2785,14 +3024,43 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             showsFileExtensionsSeparately: showsFileExtensionsSeparately,
             fileTypeAssociations: fileTypeAssociations,
             fileTypeColorScope: fileTypeColorScope,
+            filePatternHistory: filePatternHistory.entries,
             theme: displayThemeSet.selectedTheme,
             preservesScrollPosition: pane == .right
         )
+        if leftSearchInputVisibilityChanged || rightSearchInputVisibilityChanged {
+            applyFileListLayoutSynchronously()
+        }
+        if showsPreviewPane {
+            previewPaneView.render(
+                state: activePaneState,
+                theme: displayThemeSet.selectedTheme,
+                isInPreviewMode: isInPreviewMode
+            )
+        }
         messageLogView.render(messages: leftState.messageLines, theme: displayThemeSet.selectedTheme)
     }
 
-    private func requestFileListLayoutApplication() {
+    private func applyFileListLayoutSynchronously() {
+        guard view.window != nil, !isApplyingSynchronousFileListLayout else {
+            return
+        }
+
+        isApplyingSynchronousFileListLayout = true
+        defer { isApplyingSynchronousFileListLayout = false }
+
+        view.layoutSubtreeIfNeeded()
+        applyPaneWidthRatio()
+        applyPreviewPaneWidth()
+        applyMessageWindowHeightRatio()
+        view.layoutSubtreeIfNeeded()
+        leftPaneView.applyFileListLayout(fontSize: fileListFontSize, force: true)
+        rightPaneView.applyFileListLayout(fontSize: fileListFontSize, force: true)
+    }
+
+    private func requestFileListLayoutApplication(force: Bool = false) {
         fileListLayoutNeedsApplication = true
+        forceFileListLayoutApplication = forceFileListLayoutApplication || force
         guard !isFileListLayoutApplicationScheduled else {
             return
         }
@@ -2806,6 +3074,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             // split view の divider 移動後に子ビューの bounds を確定させる。
             self.view.layoutSubtreeIfNeeded()
             self.applyPaneWidthRatio()
+            self.applyPreviewPaneWidth()
             self.applyMessageWindowHeightRatio()
             self.view.layoutSubtreeIfNeeded()
             self.applyPendingFileListLayoutIfNeeded()
@@ -2819,8 +3088,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         }
 
         fileListLayoutNeedsApplication = false
-        leftPaneView.applyFileListLayout(fontSize: fileListFontSize)
-        rightPaneView.applyFileListLayout(fontSize: fileListFontSize)
+        let force = forceFileListLayoutApplication
+        forceFileListLayoutApplication = false
+        leftPaneView.applyFileListLayout(fontSize: fileListFontSize, force: force)
+        rightPaneView.applyFileListLayout(fontSize: fileListFontSize, force: force)
     }
 
     private func applyWindowTheme() {
@@ -2838,10 +3109,25 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         }
 
         if resizedSplitView === splitView {
+            guard !isApplyingPaneWidth, !isRestoringInitialSplitLayout else {
+                return
+            }
             updatePaneWidthRatioFromSplitView()
+            requestFileListLayoutApplication(force: true)
+        } else if resizedSplitView === contentSplitView {
+            guard !isApplyingPreviewPaneWidth, !isRestoringInitialSplitLayout else {
+                return
+            }
+            updatePreviewPaneWidthFromSplitView()
+            requestFileListLayoutApplication(force: true)
         } else if resizedSplitView === rootSplitView {
+            guard !isApplyingMessageWindowHeight, !isRestoringInitialSplitLayout else {
+                return
+            }
             updateMessageWindowHeightRatioFromSplitView()
             applyPaneWidthRatio()
+            applyPreviewPaneWidth()
+            requestFileListLayoutApplication(force: true)
         }
     }
 
@@ -2854,6 +3140,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             return splitView.bounds.height * 0.55
         }
 
+        if splitView === contentSplitView {
+            return splitView.bounds.width * 0.2
+        }
+
         return splitView.bounds.width * 0.2
     }
 
@@ -2864,6 +3154,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     ) -> CGFloat {
         if splitView === rootSplitView {
             return splitView.bounds.height * 0.88
+        }
+
+        if splitView === contentSplitView {
+            return splitView.bounds.width * 0.8
         }
 
         return splitView.bounds.width * 0.8
@@ -3629,6 +3923,13 @@ private final class DriveListViewController: NSViewController {
         titleLabel.backgroundColor = backgroundColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        let ejectShortcutLabel = NSTextField(labelWithString: L10n.string("driveList.ejectShortcut"))
+        ejectShortcutLabel.font = .systemFont(ofSize: 12)
+        ejectShortcutLabel.textColor = foregroundColor.withAlphaComponent(0.75)
+        ejectShortcutLabel.backgroundColor = backgroundColor
+        ejectShortcutLabel.lineBreakMode = .byTruncatingTail
+        ejectShortcutLabel.translatesAutoresizingMaskIntoConstraints = false
+
         dataSource.theme = theme
         tableView.dataSource = dataSource
         tableView.delegate = dataSource
@@ -3667,6 +3968,7 @@ private final class DriveListViewController: NSViewController {
 
         container.addSubview(titleLabel)
         container.addSubview(scrollView)
+        container.addSubview(ejectShortcutLabel)
 
         NSLayoutConstraint.activate([
             titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
@@ -3675,7 +3977,11 @@ private final class DriveListViewController: NSViewController {
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
             scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12)
+            scrollView.bottomAnchor.constraint(equalTo: ejectShortcutLabel.topAnchor, constant: -8),
+
+            ejectShortcutLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            ejectShortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            ejectShortcutLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12)
         ])
 
         view = container

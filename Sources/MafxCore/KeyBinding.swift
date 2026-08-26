@@ -88,6 +88,13 @@ public enum KeyBindingContext: String, Codable, Equatable, CaseIterable {
     case mainPane
 }
 
+/// コマンドが操作対象とする範囲。モード中のキー解決でも一貫して利用する。
+public enum CommandExecutionScope: Equatable {
+    case application
+    case activePane
+    case preview
+}
+
 public enum CommandID: String, Codable, Equatable, CaseIterable {
     case moveSelectionUp
     case moveSelectionDown
@@ -105,6 +112,8 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
     case openSelectedItem
     case openWithConfiguredApplication
     case previewSelectedFile
+    case togglePreviewPane
+    case enterPreviewMode
     case moveToParentDirectory
     case toggleMark
     case toggleMarkReverse
@@ -191,6 +200,10 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
             return "指定アプリで開く"
         case .previewSelectedFile:
             return "選択中ファイルをプレビュー"
+        case .togglePreviewPane:
+            return "プレビューペインを表示／非表示"
+        case .enterPreviewMode:
+            return "プレビューモードに入る"
         case .moveToParentDirectory:
             return "親ディレクトリへ移動"
         case .toggleMark:
@@ -300,11 +313,24 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
         "command.\(rawValue)"
     }
 
+    public var executionScope: CommandExecutionScope {
+        switch self {
+        case .togglePreviewPane, .openSettings, .quitApplication,
+             .toggleHiddenFiles, .increaseFileListFontSize,
+             .decreaseFileListFontSize, .resetFileListFontSize:
+            return .application
+        case .enterPreviewMode:
+            return .preview
+        default:
+            return .activePane
+        }
+    }
+
     public var category: KeyBindingCategory {
         switch self {
         case .moveSelectionUp, .moveSelectionDown, .moveSelectionPageUp, .moveSelectionPageDown,
              .activateLeftPane, .activateRightPane, .switchActivePane, .openSelectedDirectory,
-             .openSelectedItem, .openWithConfiguredApplication, .previewSelectedFile, .moveToParentDirectory, .historyBack, .historyForward, .showNavigationHistory,
+             .openSelectedItem, .openWithConfiguredApplication, .previewSelectedFile, .togglePreviewPane, .enterPreviewMode, .moveToParentDirectory, .historyBack, .historyForward, .showNavigationHistory,
              .syncActivePaneToOpposite, .syncOppositePaneToActive, .showJumpPathList, .beginDirectPathInput,
              .openJumpPath1, .openJumpPath2, .openJumpPath3, .openJumpPath4, .openJumpPath5,
              .openJumpPath6, .openJumpPath7, .openJumpPath8, .openJumpPath9, .openJumpPath0,
@@ -422,6 +448,8 @@ public struct KeyBindingSet: Codable, Equatable {
         KeyBindingEntry(commandID: .openSelectedItem, sequences: [.init(.init(key: "Return", modifiers: .command))]),
         KeyBindingEntry(commandID: .openWithConfiguredApplication, sequences: [.init(.init(key: "Return", modifiers: .control))]),
         KeyBindingEntry(commandID: .previewSelectedFile, sequences: [.init(.init(key: "V"))]),
+        KeyBindingEntry(commandID: .togglePreviewPane, sequences: [.init(.init(key: "V", modifiers: .shift))]),
+        KeyBindingEntry(commandID: .enterPreviewMode, sequences: [.init(.init(key: "V", modifiers: .option))]),
         KeyBindingEntry(commandID: .moveToParentDirectory, sequences: [.init(.init(key: "Backspace"))]),
         KeyBindingEntry(commandID: .toggleMark, sequences: [.init(.init(key: "Space"))]),
         KeyBindingEntry(commandID: .toggleMarkReverse, sequences: [.init(.init(key: "Space", modifiers: .shift))]),
@@ -616,12 +644,16 @@ public final class KeymapResolver {
     /// 指定した入力済みキー列に続く、実行可能なコマンド候補を返します。
     ///
     /// UI はこの結果だけを表示し、キーバインド定義を直接探索しません。
-    public func candidates(for pendingSequence: PendingKeySequence) -> [KeyBindingCandidate] {
+    public func candidates(
+        for pendingSequence: PendingKeySequence,
+        allowedCommandIDs: Set<CommandID>? = nil
+    ) -> [KeyBindingCandidate] {
         let prefix = pendingSequence.strokes
         var candidates: [KeyBindingCandidate] = []
         var seen = Set<KeyBindingCandidate>()
 
-        for entry in keyBindingSet.entries where entry.context == context {
+        for entry in keyBindingSet.entries where entry.context == context
+            && (allowedCommandIDs?.contains(entry.commandID) ?? true) {
             for sequence in entry.sequences where sequence.hasPrefix(prefix) && sequence.strokes.count > prefix.count {
                 let candidate = KeyBindingCandidate(
                     commandID: entry.commandID,
@@ -636,11 +668,16 @@ public final class KeymapResolver {
         return candidates
     }
 
-    public func resolve(_ stroke: KeyStroke) -> KeymapResolution {
+    public func resolve(
+        _ stroke: KeyStroke,
+        allowedCommandIDs: Set<CommandID>? = nil
+    ) -> KeymapResolution {
         pendingStrokes.append(stroke)
 
         let matchingEntries = keyBindingSet.entries.filter { entry in
-            entry.context == context && entry.sequences.contains { $0.hasPrefix(pendingStrokes) }
+            entry.context == context
+                && (allowedCommandIDs?.contains(entry.commandID) ?? true)
+                && entry.sequences.contains { $0.hasPrefix(pendingStrokes) }
         }
         let exactMatches = matchingEntries.compactMap { entry -> CommandID? in
             entry.sequences.contains { $0.strokes == pendingStrokes } ? entry.commandID : nil

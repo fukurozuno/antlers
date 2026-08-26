@@ -1,11 +1,11 @@
 # Antlers
 
-バージョン: `0.4.0`
+バージョン: `0.5.0`
 
 Antlers は、macOS 向けのキーボードファーストな左右 2 ペイン型ファイラーです。
 キーボードによる素早い移動と、安全なファイル操作を重視しています。
 
-Version: `0.4.0`
+Version: `0.5.0`
 
 Antlers is a keyboard-first, dual-pane file manager for macOS.
 It focuses on fast navigation and safe file operations.

@@ -18,8 +18,10 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
     private let pathLabel = NSTextField(labelWithString: "")
     private let tagFilterColorMarkerView = TagFilterColorMarkerView()
     private let sortLabel = NSTextField(labelWithString: "")
+    private let fileMaskLabel = NSTextField(labelWithString: "")
     private let sortPromptLabel = NSTextField(labelWithString: "")
-    private let incrementalSearchField = IncrementalSearchTextField(string: "")
+    private let incrementalSearchField = HistoryInputTextField(string: "")
+    private let historyClickGestureRecognizer = NSClickGestureRecognizer()
     private let informationLabel = NSTextField(labelWithString: "")
     private let previewFileNameLabel = NSTextField(labelWithString: "")
     private let tableView = FilePaneTableView()
@@ -32,6 +34,7 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
     private let tagService = TagService()
     private let informationFormatter = PaneInformationFormatter()
     private var isRendering = false
+    private var isApplyingFileListLayout = false
     private var renderedItems: [FileItem] = []
     private var renderedMarkedItemURLs: Set<URL> = []
     private var renderedSelectedRow: Int?
@@ -43,7 +46,9 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
     private var renderedShowsFileExtensionsSeparately = true
     private var renderedFileTypeAssociations: [FileTypeAssociation] = []
     private var renderedFileTypeColorScope: FileTypeColorScope = .fileName
+    private var requestedFileListColumnVisibility = FileListColumnVisibility.default
     private var appliedFileListLayout: FileListLayout?
+    private var appliedFileListColumnVisibility: FileListColumnVisibility?
     private var topVisibleRow = 0
     private var renderedPreviewItemURL: URL?
     private var previewPresentationState = PreviewPresentationState()
@@ -81,6 +86,7 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
+    @discardableResult
     func render(
         state: PaneState,
         isActive: Bool,
@@ -92,11 +98,14 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         showsFileExtensionsSeparately: Bool = true,
         fileTypeAssociations: [FileTypeAssociation] = [],
         fileTypeColorScope: FileTypeColorScope = .fileName,
+        filePatternHistory: [String] = [],
         theme: DisplayTheme = .light,
         preservesScrollPosition: Bool = false
-    ) {
+    ) -> Bool {
         isRendering = true
         defer { isRendering = false }
+
+        requestedFileListColumnVisibility.showsExtension = showsFileExtensionsSeparately
 
         let scrollPosition = preservesScrollPosition ? captureScrollPosition() : nil
         if preservesScrollPosition {
@@ -109,6 +118,10 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         tagFilterColorMarkerView.isHidden = state.errorMessage != nil || state.tagFilterName == nil
         tagFilterColorMarkerView.markerColor = state.tagFilterColor?.nsColor
         sortLabel.stringValue = L10n.format("pane.sortLabel", state.sortDescriptor.localizedDisplayText)
+        fileMaskLabel.stringValue = state.fileMaskPattern.isEmpty
+            ? ""
+            : L10n.format("pane.fileMask.active", state.fileMaskPattern)
+        fileMaskLabel.isHidden = state.fileMaskPattern.isEmpty
         if let pendingKeySequenceDisplayText {
             sortPromptLabel.stringValue = L10n.format("pane.pendingKeyPrompt", pendingKeySequenceDisplayText)
             sortPromptLabel.isHidden = false
@@ -129,6 +142,9 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         if incrementalSearchField.stringValue != searchInputText {
             incrementalSearchField.stringValue = searchInputText
         }
+        incrementalSearchField.setHistoryItems(
+            state.isWildcardMarkActive || state.isFileMaskInputActive ? filePatternHistory : []
+        )
         if state.isWildcardMarkActive {
             incrementalSearchField.placeholderString = L10n.string("pane.wildcardMark.placeholder")
         } else if state.isFileMaskInputActive {
@@ -136,6 +152,7 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         } else {
             incrementalSearchField.placeholderString = L10n.string("pane.search.placeholder")
         }
+        let searchInputVisibilityChanged = incrementalSearchField.isHidden == isSearchInputActive
         incrementalSearchField.isHidden = !isSearchInputActive
         informationLabel.stringValue = informationFormatter.string(for: state)
         let isPreviewing = state.isPreviewing
@@ -176,7 +193,6 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
             dataSource.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
             dataSource.showsFileIcons = showsFileIcons
             dataSource.showsFileTagColors = showsFileTagColors
-            dataSource.showsFileExtensionsSeparately = showsFileExtensionsSeparately
             dataSource.fileTypeAssociations = fileTypeAssociations
             dataSource.fileTypeColorScope = fileTypeColorScope
             if itemsChanged {
@@ -204,8 +220,6 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
             renderedSelectedRow = displayedSelectedIndex
         }
 
-        tableView.tableColumn(withIdentifier: FilePaneDataSource.extensionColumnIdentifier)?.isHidden = !showsFileExtensionsSeparately
-
         if isActive, let visibleSelectedIndex {
             tableView.selectRowIndexes(IndexSet(integer: visibleSelectedIndex), byExtendingSelection: false)
             if !preservesScrollPosition {
@@ -230,6 +244,8 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         if isActive, isSearchInputActive {
             focusIncrementalSearchField()
         }
+
+        return searchInputVisibilityChanged
     }
 
     private func applyTheme(_ theme: DisplayTheme) {
@@ -245,10 +261,12 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         titleLabel.backgroundColor = backgroundColor
         pathLabel.backgroundColor = backgroundColor
         sortLabel.backgroundColor = backgroundColor
+        fileMaskLabel.backgroundColor = backgroundColor
         sortPromptLabel.backgroundColor = backgroundColor
         informationLabel.backgroundColor = backgroundColor
         previewFileNameLabel.backgroundColor = backgroundColor
         pathLabel.textColor = foregroundColor
+        fileMaskLabel.textColor = foregroundColor
         sortPromptLabel.textColor = foregroundColor
         informationLabel.textColor = foregroundColor
         previewFileNameLabel.textColor = foregroundColor
@@ -320,9 +338,15 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
             onIncrementalSearchEnd?(false)
             return true
         case #selector(NSResponder.moveUp(_:)):
+            if incrementalSearchField.showHistoryMenu() {
+                return true
+            }
             onIncrementalSearchMove?(-1)
             return true
         case #selector(NSResponder.moveDown(_:)):
+            if incrementalSearchField.showHistoryMenu() {
+                return true
+            }
             onIncrementalSearchMove?(1)
             return true
         default:
@@ -444,7 +468,7 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
     }
 
     private func handleSelectionChange(row: Int) {
-        guard !isRendering, row >= 0 else {
+        guard !isRendering, !isApplyingFileListLayout, row >= 0 else {
             return
         }
 
@@ -502,6 +526,12 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         incrementalSearchField.onEnd = { [weak self] in
             self?.onIncrementalSearchEnd?($0)
         }
+        incrementalSearchField.onHistorySelection = { [weak self] query in
+            self?.onIncrementalSearchQueryChange?(query)
+        }
+        historyClickGestureRecognizer.target = self
+        historyClickGestureRecognizer.action = #selector(showHistoryMenuFromClick(_:))
+        incrementalSearchField.addGestureRecognizer(historyClickGestureRecognizer)
         informationLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         informationLabel.textColor = .secondaryLabelColor
         informationLabel.lineBreakMode = .byTruncatingTail
@@ -599,7 +629,9 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         pathStack.alignment = .centerY
         pathStack.spacing = 5
 
-        let headerStack = NSStackView(views: [titleLabel, pathStack, sortLabel])
+        fileMaskLabel.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        fileMaskLabel.lineBreakMode = .byTruncatingMiddle
+        let headerStack = NSStackView(views: [titleLabel, pathStack, sortLabel, fileMaskLabel])
         headerStack.orientation = .vertical
         headerStack.spacing = 2
         headerStack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 6, right: 10)
@@ -655,13 +687,23 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         }
     }
 
-    func applyFileListLayout(fontSize: Int) {
+    @objc private func showHistoryMenuFromClick(_ sender: NSClickGestureRecognizer) {
+        guard sender.state == .ended else {
+            return
+        }
+
+        _ = incrementalSearchField.showHistoryMenu()
+    }
+
+    func applyFileListLayout(fontSize: Int, force: Bool = false) {
         let layout = FileListLayout(fontSize: fontSize)
-        guard appliedFileListLayout != layout else {
+        guard force || appliedFileListLayout != layout else {
             return
         }
 
         guard let nameColumn = tableView.tableColumn(withIdentifier: FilePaneDataSource.nameColumnIdentifier),
+              let extensionColumn = tableView.tableColumn(withIdentifier: FilePaneDataSource.extensionColumnIdentifier),
+              let sizeColumn = tableView.tableColumn(withIdentifier: FilePaneDataSource.sizeColumnIdentifier),
               let modifiedColumn = tableView.tableColumn(withIdentifier: FilePaneDataSource.modifiedColumnIdentifier) else {
             return
         }
@@ -671,25 +713,63 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         modifiedColumn.minWidth = layout.modificationDateColumnWidth
         modifiedColumn.maxWidth = layout.modificationDateColumnWidth
         modifiedColumn.width = layout.modificationDateColumnWidth
-        let nonNameColumnWidth = tableView.tableColumns
-            .filter { $0.identifier != FilePaneDataSource.nameColumnIdentifier }
-            .reduce(CGFloat.zero) { $0 + $1.width }
+
         let columnOriginX = tableView.rect(ofColumn: 0).minX
         let availableColumnWidth = max(0, scrollView.contentView.bounds.width - columnOriginX)
+        let visibility = FileListColumnMetrics.responsiveVisibility(
+            availableColumnWidth: availableColumnWidth,
+            minimumNameColumnWidth: FileListColumnMetrics.minimumNameColumnWidth,
+            requestedVisibility: requestedFileListColumnVisibility,
+            extensionColumnWidth: extensionColumn.width,
+            sizeColumnWidth: sizeColumn.width,
+            modificationDateColumnWidth: modifiedColumn.width
+        )
+        let shouldReloadData = appliedFileListLayout != layout
+            || appliedFileListColumnVisibility != visibility
+
+        isApplyingFileListLayout = true
+        defer { isApplyingFileListLayout = false }
+        extensionColumn.isHidden = !visibility.showsExtension
+        sizeColumn.isHidden = !visibility.showsSize
+        modifiedColumn.isHidden = !visibility.showsModificationDate
+        dataSource.showsFileExtensionsSeparately = visibility.showsExtension
+
+        let nonNameColumnWidth = tableView.tableColumns
+            .filter { $0.identifier != FilePaneDataSource.nameColumnIdentifier && !$0.isHidden }
+            .reduce(CGFloat.zero) { $0 + $1.width }
         nameColumn.width = FileListColumnMetrics.nameColumnWidth(
             availableColumnWidth: availableColumnWidth,
             nonNameColumnWidth: nonNameColumnWidth,
-            minimumNameColumnWidth: nameColumn.minWidth
+            minimumNameColumnWidth: FileListColumnMetrics.minimumNameColumnWidth
         )
         tableView.tile()
         appliedFileListLayout = layout
-        tableView.reloadData()
+        appliedFileListColumnVisibility = visibility
+        if shouldReloadData {
+            tableView.reloadData()
+        }
     }
 }
 
-private final class IncrementalSearchTextField: NSTextField {
+private final class HistoryInputTextField: NSTextField {
     var onMove: ((Int) -> Void)?
     var onEnd: ((Bool) -> Void)?
+    var onHistorySelection: ((String) -> Void)?
+    private var historyItems: [String] = []
+
+    func setHistoryItems(_ items: [String]) {
+        historyItems = items
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !historyItems.isEmpty else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        window?.makeFirstResponder(self)
+        showHistoryMenu()
+    }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -698,12 +778,47 @@ private final class IncrementalSearchTextField: NSTextField {
         case SearchKeyCode.escape:
             onEnd?(false)
         case SearchKeyCode.upArrow:
-            onMove?(-1)
+            showHistoryOrMoveSelection(-1)
         case SearchKeyCode.downArrow:
-            onMove?(1)
+            showHistoryOrMoveSelection(1)
         default:
             super.keyDown(with: event)
         }
+    }
+
+    private func showHistoryOrMoveSelection(_ delta: Int) {
+        guard !historyItems.isEmpty else {
+            onMove?(delta)
+            return
+        }
+
+        showHistoryMenu()
+    }
+
+    @discardableResult
+    func showHistoryMenu() -> Bool {
+        guard !historyItems.isEmpty else {
+            return false
+        }
+
+        let menu = NSMenu()
+        for pattern in historyItems {
+            let item = NSMenuItem(title: pattern, action: #selector(selectHistoryItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = pattern
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height), in: self)
+        return true
+    }
+
+    @objc private func selectHistoryItem(_ sender: NSMenuItem) {
+        guard let pattern = sender.representedObject as? String else {
+            return
+        }
+
+        stringValue = pattern
+        onHistorySelection?(pattern)
     }
 }
 
@@ -875,6 +990,36 @@ private final class FilePaneTableView: NSTableView {
 struct FileListColumnMetrics {
     private static let modificationDateText = "0000/00/00 00:00:00"
     private static let textHorizontalInset: CGFloat = 8
+    static let minimumNameColumnWidth: CGFloat = 160
+
+    static func responsiveVisibility(
+        availableColumnWidth: CGFloat,
+        minimumNameColumnWidth: CGFloat,
+        requestedVisibility: FileListColumnVisibility,
+        extensionColumnWidth: CGFloat,
+        sizeColumnWidth: CGFloat,
+        modificationDateColumnWidth: CGFloat
+    ) -> FileListColumnVisibility {
+        var visibility = requestedVisibility
+        let columnsInHideOrder: [(width: CGFloat, hide: () -> Void)] = [
+            (extensionColumnWidth, { visibility.showsExtension = false }),
+            (sizeColumnWidth, { visibility.showsSize = false }),
+            (modificationDateColumnWidth, { visibility.showsModificationDate = false })
+        ]
+
+        func requiredWidth() -> CGFloat {
+            minimumNameColumnWidth
+                + (visibility.showsExtension ? extensionColumnWidth : 0)
+                + (visibility.showsSize ? sizeColumnWidth : 0)
+                + (visibility.showsModificationDate ? modificationDateColumnWidth : 0)
+        }
+
+        for column in columnsInHideOrder where requiredWidth() > availableColumnWidth {
+            column.hide()
+        }
+
+        return visibility
+    }
 
     static func modificationDateWidth(font: NSFont) -> CGFloat {
         let textField = NSTextField(labelWithString: modificationDateText)
@@ -891,6 +1036,18 @@ struct FileListColumnMetrics {
     ) -> CGFloat {
         max(minimumNameColumnWidth, availableColumnWidth - nonNameColumnWidth)
     }
+}
+
+struct FileListColumnVisibility: Equatable {
+    var showsExtension: Bool
+    var showsSize: Bool
+    var showsModificationDate: Bool
+
+    static let `default` = Self(
+        showsExtension: true,
+        showsSize: true,
+        showsModificationDate: true
+    )
 }
 
 private struct FileListLayout: Equatable {

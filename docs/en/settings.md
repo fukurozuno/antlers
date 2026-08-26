@@ -11,17 +11,27 @@ Press `Z` or `Command+,` to open Settings. You can change startup locations, act
 
 ## General
 
-General settings include the app language, Return key behavior, incremental search matching, and startup locations for the left and right panes.
+General settings include the app language, Return key behavior, incremental search matching, and startup locations for the left and right panes. You can set the file-list font size from 8 to 24 pt.
 
 Return key behavior applies only to unmodified `Return` in the main pane. By default it opens the selected directory, but it can also preview files while opening directories, or do nothing.
 
 Incremental search can use prefix, contains, or exact matching.
+
+Enable **Show preview pane** to show an auxiliary preview that follows the selected item. Choose **Preview pane position** to place it on the left or right. A width changed by dragging or in preview mode is restored at the next launch.
 
 ## Operations and confirmations
 
 Confirmations for copy, move, move to Trash, and quit can be toggled individually. You can also set the number of file-operation detail log entries. Use `0` to show all entries.
 
 Operation behavior settings include moving the cursor after marking, entering newly created folders, and selecting the previous directory after moving to the parent directory.
+
+**Allow file drag to other applications** is off by default. When enabled, you can drag files from a list to another application as copies.
+
+## Import and export settings
+
+Use **Import…** and **Export…** at the bottom of Settings to read and write JSON settings files. Imported settings are not applied until you press OK in the Settings window. Press Cancel or `Esc` to discard them.
+
+You can also import keybindings only or custom themes only. Invalid files or unsupported values are rejected without changing existing settings.
 
 ## Built-in themes
 
@@ -44,6 +54,8 @@ You can also adjust display colors to create your own theme, including colors fo
 ## File type settings
 
 For each file extension, you can configure an application and a list color. Files with a configured application can be opened with that application using the default `Control+Return` shortcut.
+
+**Other** applies to ordinary files that have no specific extension setting, including files with no extension. It does not apply to directories or special items. A specific extension setting takes precedence over **Other**.
 
 ## Zebra rows
 

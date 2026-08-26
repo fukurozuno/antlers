@@ -5,7 +5,7 @@ title: Antlers マニュアル
 
 # Antlers マニュアル
 
-Antlers は、キーボードで素早く操作できる macOS 用の左右 2 ペイン型ファイラーです。左右のペインをコピー元とコピー先として見比べながら、ファイルを整理できます。
+Antlers は、キーボードで素早く操作できる macOS 用の左右 2 ペイン型ファイラーです。左右のペインをコピー元とコピー先として見比べながら、ファイルを整理できます。必要に応じて補助プレビューペインも表示できます。
 
 ![Antlers のメイン画面](../assets/screenshots/main-window.png)
 
@@ -26,6 +26,8 @@ Antlers は、キーボードで素早く操作できる macOS 用の左右 2 �
 
 ## リリースノート
 
+- [V0.5.0](releases/v0.5.0.md)
+- [V0.4.0](releases/v0.4.0.md)
 - [V0.3.0](releases/v0.3.0.md)
 - [V0.2.0](releases/v0.2.0.md)
 

@@ -51,6 +51,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             name: .paneDirectoriesDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(filePatternHistoryDidChange(_:)),
+            name: .filePatternHistoryDidChange,
+            object: nil
+        )
 
         let windowController = MainWindowController(
             settings: appSettings,
@@ -119,6 +125,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func settingsDidChange(_ notification: Notification) {
+        if let showsPreviewPane = notification.userInfo?[SettingsNotificationKey.showsPreviewPane] as? Bool {
+            appSettings.showsPreviewPane = showsPreviewPane
+        }
+
+        if let previewPanePosition = notification.userInfo?[SettingsNotificationKey.previewPanePosition] as? PreviewPanePosition {
+            appSettings.previewPanePosition = previewPanePosition
+        }
+
+        if let previewPaneWidthRatio = notification.userInfo?[SettingsNotificationKey.previewPaneWidthRatio] as? Double {
+            appSettings.previewPaneWidthRatio = AppSettings.normalizedPreviewPaneWidthRatio(previewPaneWidthRatio)
+        }
+
         if let showsHiddenFiles = notification.userInfo?[SettingsNotificationKey.showsHiddenFiles] as? Bool {
             appSettings.showsHiddenFiles = showsHiddenFiles
         }
@@ -258,6 +276,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsRepository.save(appSettings)
     }
 
+    @objc private func filePatternHistoryDidChange(_ notification: Notification) {
+        guard let history = notification.userInfo?[SettingsNotificationKey.filePatternHistory] as? FilePatternHistory else {
+            return
+        }
+
+        appSettings.filePatternHistory = history
+        settingsRepository.save(appSettings)
+    }
+
     private func configureMainMenu() {
         NSApp.mainMenu = makeMainMenu()
     }
@@ -337,11 +364,16 @@ extension Notification.Name {
     static let settingsDidChange = Notification.Name("MafxSettingsDidChange")
     static let jumpPathEntriesDidChange = Notification.Name("MafxJumpPathEntriesDidChange")
     static let paneDirectoriesDidChange = Notification.Name("MafxPaneDirectoriesDidChange")
+    static let filePatternHistoryDidChange = Notification.Name("MafxFilePatternHistoryDidChange")
     static let applicationQuitRequested = Notification.Name("MafxApplicationQuitRequested")
 }
 
 enum SettingsNotificationKey {
+    static let filePatternHistory = "filePatternHistory"
     static let showsHiddenFiles = "showsHiddenFiles"
+    static let showsPreviewPane = "showsPreviewPane"
+    static let previewPanePosition = "previewPanePosition"
+    static let previewPaneWidthRatio = "previewPaneWidthRatio"
     static let usesAlternatingRowBackgrounds = "usesAlternatingRowBackgrounds"
     static let showsFileIcons = "showsFileIcons"
     static let showsFileTagColors = "showsFileTagColors"

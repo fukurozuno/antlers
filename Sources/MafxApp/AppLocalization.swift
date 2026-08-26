@@ -98,6 +98,12 @@ extension ReturnKeyBehavior {
     }
 }
 
+extension PreviewPanePosition {
+    var localizedTitle: String {
+        L10n.string(self == .right ? "settings.previewPanePosition.right" : "settings.previewPanePosition.left")
+    }
+}
+
 extension IncrementalSearchMatchMode {
     var localizedTitle: String {
         switch self {

@@ -18,10 +18,15 @@ Press `Z` or `Command+,`, then open **Keybindings** to review and change shortcu
 | `C` / `M` / `D` | Copy / move / move to Trash |
 | `F` | Start incremental search |
 | `V` | Preview the selected file |
+| `Shift+V` / `Option+V` | Show or hide the auxiliary preview pane / enter preview mode |
+| `Shift+@` / `Shift+:` | Wildcard marking / file mask |
+| `L` | Show Locations (`Command+E` ejects a removable selected volume) |
+| `T` / `Shift+T` | Show tags / add or remove a tag on the selected item |
 | `Control+Return` | Open with the configured application |
 | `P, 1` / `P, 2` / `P, 3` | Copy file names / parent directory paths / full paths |
 | `_` / `Shift+_` | Show the context menu |
 | `S, S` / `S, E` / `S, F` / `S, T` | Sort by size / extension / name / modification date |
+| `Command+Shift++` / `Command+-` / `Command+0` | Increase / decrease / reset file-list font size |
 
 Identical or prefix-overlapping sequences conflict. Resolve conflicts before applying the settings. After entering the first stroke of a multi-stroke sequence, Antlers can show available next keys and command candidates.
 

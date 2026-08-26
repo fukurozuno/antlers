@@ -542,6 +542,7 @@ public extension DisplayTheme {
 }
 
 public enum SettingsToggleID: Equatable {
+    case showPreviewPane
     case showHiddenFiles
     case useAlternatingRowBackgrounds
     case showFileIcons
@@ -559,6 +560,7 @@ public enum SettingsToggleID: Equatable {
 }
 
 public enum SettingsChoiceID: Equatable {
+    case previewPanePosition
     case appLanguage
     case returnKeyBehavior
     case incrementalSearchMatchMode
@@ -609,6 +611,11 @@ public enum ReturnKeyBehavior: String, Codable, Equatable, CaseIterable {
     case disabled
 }
 
+public enum PreviewPanePosition: String, Codable, Equatable, CaseIterable {
+    case left
+    case right
+}
+
 public extension IncrementalSearchMatchMode {
     var next: IncrementalSearchMatchMode {
         let values = Self.allCases
@@ -622,6 +629,7 @@ public enum SettingsChoiceValue: Equatable {
     case returnKeyBehavior(ReturnKeyBehavior)
     case incrementalSearchMatchMode(IncrementalSearchMatchMode)
     case startupPathMode(StartupPathMode)
+    case previewPanePosition(PreviewPanePosition)
 }
 
 private extension StartupPathMode {
@@ -659,6 +667,7 @@ public struct SettingsState: Equatable {
     public private(set) var focusedItemIndex: Int
     public private(set) var focusArea: SettingsFocusArea
     public private(set) var showsHiddenFiles: Bool
+    public private(set) var showsPreviewPane: Bool
     public private(set) var usesAlternatingRowBackgrounds: Bool
     public private(set) var showsFileIcons: Bool
     public private(set) var showsFileTagColors: Bool
@@ -677,6 +686,7 @@ public struct SettingsState: Equatable {
     public private(set) var appLanguage: AppLanguage
     public private(set) var returnKeyBehavior: ReturnKeyBehavior
     public private(set) var incrementalSearchMatchMode: IncrementalSearchMatchMode
+    public private(set) var previewPanePosition: PreviewPanePosition
     public private(set) var leftStartupPathMode: StartupPathMode
     public private(set) var rightStartupPathMode: StartupPathMode
     public private(set) var leftStartupPath: String
@@ -693,6 +703,7 @@ public struct SettingsState: Equatable {
         focusedItemIndex: Int = 0,
         focusArea: SettingsFocusArea = .items,
         showsHiddenFiles: Bool = false,
+        showsPreviewPane: Bool = false,
         usesAlternatingRowBackgrounds: Bool = false,
         showsFileIcons: Bool = true,
         showsFileTagColors: Bool = true,
@@ -711,6 +722,7 @@ public struct SettingsState: Equatable {
         appLanguage: AppLanguage = .system,
         returnKeyBehavior: ReturnKeyBehavior = .openSelectedDirectory,
         incrementalSearchMatchMode: IncrementalSearchMatchMode = .prefix,
+        previewPanePosition: PreviewPanePosition = .right,
         leftStartupPathMode: StartupPathMode = .previous,
         rightStartupPathMode: StartupPathMode = .previous,
         leftStartupPath: String = "",
@@ -726,6 +738,7 @@ public struct SettingsState: Equatable {
         self.focusedItemIndex = focusedItemIndex
         self.focusArea = focusArea
         self.showsHiddenFiles = showsHiddenFiles
+        self.showsPreviewPane = showsPreviewPane
         self.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
         self.showsFileIcons = showsFileIcons
         self.showsFileTagColors = showsFileTagColors
@@ -744,6 +757,7 @@ public struct SettingsState: Equatable {
         self.appLanguage = appLanguage
         self.returnKeyBehavior = returnKeyBehavior
         self.incrementalSearchMatchMode = incrementalSearchMatchMode
+        self.previewPanePosition = previewPanePosition
         self.leftStartupPathMode = leftStartupPathMode
         self.rightStartupPathMode = rightStartupPathMode
         self.leftStartupPath = Self.normalizedOptionalPath(leftStartupPath)
@@ -876,6 +890,8 @@ public struct SettingsState: Equatable {
 
     public func isToggleOn(_ toggleID: SettingsToggleID) -> Bool {
         switch toggleID {
+        case .showPreviewPane:
+            return showsPreviewPane
         case .showHiddenFiles:
             return showsHiddenFiles
         case .useAlternatingRowBackgrounds:
@@ -909,6 +925,8 @@ public struct SettingsState: Equatable {
 
     public mutating func setToggle(_ toggleID: SettingsToggleID, isOn: Bool) {
         switch toggleID {
+        case .showPreviewPane:
+            showsPreviewPane = isOn
         case .showHiddenFiles:
             showsHiddenFiles = isOn
         case .useAlternatingRowBackgrounds:
@@ -942,6 +960,8 @@ public struct SettingsState: Equatable {
 
     public func selectedChoice(_ choiceID: SettingsChoiceID) -> SettingsChoiceValue {
         switch choiceID {
+        case .previewPanePosition:
+            return .previewPanePosition(previewPanePosition)
         case .appLanguage:
             return .appLanguage(appLanguage)
         case .returnKeyBehavior:
@@ -957,6 +977,8 @@ public struct SettingsState: Equatable {
 
     public mutating func setChoice(_ choiceID: SettingsChoiceID, to value: SettingsChoiceValue) {
         switch (choiceID, value) {
+        case (.previewPanePosition, .previewPanePosition(let position)):
+            previewPanePosition = position
         case (.appLanguage, .appLanguage(let language)):
             appLanguage = language
         case (.returnKeyBehavior, .returnKeyBehavior(let behavior)):
@@ -983,6 +1005,8 @@ public struct SettingsState: Equatable {
         case .returnKeyBehavior:
             return
         case .incrementalSearchMatchMode:
+            return
+        case .previewPanePosition:
             return
         }
     }
@@ -1124,6 +1148,8 @@ public struct SettingsState: Equatable {
 
     private mutating func toggle(_ toggleID: SettingsToggleID) {
         switch toggleID {
+        case .showPreviewPane:
+            showsPreviewPane.toggle()
         case .showHiddenFiles:
             showsHiddenFiles.toggle()
         case .useAlternatingRowBackgrounds:
@@ -1157,6 +1183,8 @@ public struct SettingsState: Equatable {
 
     private mutating func cycle(_ choiceID: SettingsChoiceID) {
         switch choiceID {
+        case .previewPanePosition:
+            previewPanePosition = previewPanePosition == .right ? .left : .right
         case .appLanguage:
             let values = AppLanguage.allCases
             guard let index = values.firstIndex(of: appLanguage) else {
@@ -1199,7 +1227,11 @@ public struct SettingsState: Equatable {
 }
 
 public struct AppSettings: Codable, Equatable {
+    public static let previewPaneWidthRatioRange: ClosedRange<Double> = 0.2...0.55
+    public static let defaultPreviewPaneWidthRatio = 0.32
+
     public var showsHiddenFiles: Bool
+    public var showsPreviewPane: Bool
     public var usesAlternatingRowBackgrounds: Bool
     public var showsFileIcons: Bool
     public var showsFileTagColors: Bool
@@ -1218,6 +1250,8 @@ public struct AppSettings: Codable, Equatable {
     public var appLanguage: AppLanguage
     public var returnKeyBehavior: ReturnKeyBehavior
     public var incrementalSearchMatchMode: IncrementalSearchMatchMode
+    public var previewPanePosition: PreviewPanePosition
+    public var previewPaneWidthRatio: Double
     public var leftStartupPathMode: StartupPathMode
     public var rightStartupPathMode: StartupPathMode
     public var leftStartupPath: String
@@ -1227,6 +1261,7 @@ public struct AppSettings: Codable, Equatable {
     public var rightPanePath: String
     public var leftPaneNavigationHistory: NavigationHistory
     public var rightPaneNavigationHistory: NavigationHistory
+    public var filePatternHistory: FilePatternHistory
     public var leftPaneSortDescriptor: FileSortDescriptor
     public var rightPaneSortDescriptor: FileSortDescriptor
     public var keyBindingSet: KeyBindingSet
@@ -1236,6 +1271,7 @@ public struct AppSettings: Codable, Equatable {
 
     public init(
         showsHiddenFiles: Bool = false,
+        showsPreviewPane: Bool = false,
         usesAlternatingRowBackgrounds: Bool = false,
         showsFileIcons: Bool = true,
         showsFileTagColors: Bool = true,
@@ -1254,6 +1290,8 @@ public struct AppSettings: Codable, Equatable {
         appLanguage: AppLanguage = .system,
         returnKeyBehavior: ReturnKeyBehavior = .openSelectedDirectory,
         incrementalSearchMatchMode: IncrementalSearchMatchMode = .prefix,
+        previewPanePosition: PreviewPanePosition = .right,
+        previewPaneWidthRatio: Double = AppSettings.defaultPreviewPaneWidthRatio,
         leftStartupPathMode: StartupPathMode = .previous,
         rightStartupPathMode: StartupPathMode = .previous,
         leftStartupPath: String = "",
@@ -1263,6 +1301,7 @@ public struct AppSettings: Codable, Equatable {
         rightPanePath: String,
         leftPaneNavigationHistory: NavigationHistory = NavigationHistory(),
         rightPaneNavigationHistory: NavigationHistory = NavigationHistory(),
+        filePatternHistory: FilePatternHistory = FilePatternHistory(),
         leftPaneSortDescriptor: FileSortDescriptor = .default,
         rightPaneSortDescriptor: FileSortDescriptor = .default,
         keyBindingSet: KeyBindingSet = .default,
@@ -1271,6 +1310,7 @@ public struct AppSettings: Codable, Equatable {
         fileTypeColorScope: FileTypeColorScope = .fileName
     ) {
         self.showsHiddenFiles = showsHiddenFiles
+        self.showsPreviewPane = showsPreviewPane
         self.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
         self.showsFileIcons = showsFileIcons
         self.showsFileTagColors = showsFileTagColors
@@ -1289,6 +1329,8 @@ public struct AppSettings: Codable, Equatable {
         self.appLanguage = appLanguage
         self.returnKeyBehavior = returnKeyBehavior
         self.incrementalSearchMatchMode = incrementalSearchMatchMode
+        self.previewPanePosition = previewPanePosition
+        self.previewPaneWidthRatio = Self.normalizedPreviewPaneWidthRatio(previewPaneWidthRatio)
         self.leftStartupPathMode = leftStartupPathMode
         self.rightStartupPathMode = rightStartupPathMode
         self.leftStartupPath = Self.normalizedOptionalPath(leftStartupPath)
@@ -1304,6 +1346,7 @@ public struct AppSettings: Codable, Equatable {
             fileURLWithPath: self.rightPanePath,
             isDirectory: true
         ))
+        self.filePatternHistory = filePatternHistory
         self.leftPaneSortDescriptor = leftPaneSortDescriptor
         self.rightPaneSortDescriptor = rightPaneSortDescriptor
         self.keyBindingSet = keyBindingSet
@@ -1324,6 +1367,7 @@ public struct AppSettings: Codable, Equatable {
     public var settingsState: SettingsState {
         SettingsState(
             showsHiddenFiles: showsHiddenFiles,
+            showsPreviewPane: showsPreviewPane,
             usesAlternatingRowBackgrounds: usesAlternatingRowBackgrounds,
             showsFileIcons: showsFileIcons,
             showsFileTagColors: showsFileTagColors,
@@ -1342,6 +1386,7 @@ public struct AppSettings: Codable, Equatable {
             appLanguage: appLanguage,
             returnKeyBehavior: returnKeyBehavior,
             incrementalSearchMatchMode: incrementalSearchMatchMode,
+            previewPanePosition: previewPanePosition,
             leftStartupPathMode: leftStartupPathMode,
             rightStartupPathMode: rightStartupPathMode,
             leftStartupPath: leftStartupPath,
@@ -1372,6 +1417,7 @@ public struct AppSettings: Codable, Equatable {
 
     public mutating func applySettingsState(_ state: SettingsState) {
         showsHiddenFiles = state.showsHiddenFiles
+        showsPreviewPane = state.showsPreviewPane
         usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
         showsFileIcons = state.showsFileIcons
         showsFileTagColors = state.showsFileTagColors
@@ -1390,6 +1436,7 @@ public struct AppSettings: Codable, Equatable {
         appLanguage = state.appLanguage
         returnKeyBehavior = state.returnKeyBehavior
         incrementalSearchMatchMode = state.incrementalSearchMatchMode
+        previewPanePosition = state.previewPanePosition
         leftStartupPathMode = state.leftStartupPathMode
         rightStartupPathMode = state.rightStartupPathMode
         leftStartupPath = Self.normalizedOptionalPath(state.leftStartupPath)
@@ -1441,6 +1488,10 @@ public struct AppSettings: Codable, Equatable {
     private static func normalizedNonNegativeInteger(_ value: Int) -> Int {
         max(0, value)
     }
+
+    public static func normalizedPreviewPaneWidthRatio(_ value: Double) -> Double {
+        min(previewPaneWidthRatioRange.upperBound, max(previewPaneWidthRatioRange.lowerBound, value))
+    }
 }
 
 public extension SettingsState {
@@ -1465,6 +1516,16 @@ public extension SettingsState {
                 title: "Incremental search",
                 localizationKey: "settings.item.incrementalSearchMatchMode",
                 choiceID: .incrementalSearchMatchMode
+            ),
+            SettingsItem(
+                title: "Show preview pane",
+                localizationKey: "settings.item.showPreviewPane",
+                toggleID: .showPreviewPane
+            ),
+            SettingsItem(
+                title: "Preview pane position",
+                localizationKey: "settings.item.previewPanePosition",
+                choiceID: .previewPanePosition
             ),
             SettingsItem(
                 title: "Show hidden files",
