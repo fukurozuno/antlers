@@ -1,6 +1,13 @@
 import Foundation
 
 public struct PaneState: Equatable {
+    private struct ArchiveBrowsingState: Equatable {
+        let archiveURL: URL
+        let archiveName: String
+        let entries: [ArchiveEntryInfo]
+        var directoryPath: String
+    }
+
     public private(set) var currentDirectory: URL
     public private(set) var items: [FileItem]
     public private(set) var selectedIndex: Int
@@ -20,10 +27,13 @@ public struct PaneState: Equatable {
     public private(set) var paneWidthRatio: Double
     public private(set) var messageWindowHeightRatio: Double
     public private(set) var messageLines: [String]
+    public private(set) var transientOperationMessage: String?
     public private(set) var navigationHistory: NavigationHistory
     public private(set) var errorMessage: String?
     public private(set) var previewItemURL: URL?
     public private(set) var previewStartTopVisibleRow: Int?
+    public let fileSystemScope: FileSystemScope
+    private var archiveBrowsingState: ArchiveBrowsingState?
 
     public init(
         currentDirectory: URL,
@@ -45,10 +55,12 @@ public struct PaneState: Equatable {
         paneWidthRatio: Double = 0.5,
         messageWindowHeightRatio: Double = 0.2,
         messageLines: [String] = [],
+        transientOperationMessage: String? = nil,
         navigationHistory: NavigationHistory = NavigationHistory(),
         errorMessage: String? = nil,
         previewItemURL: URL? = nil,
-        previewStartTopVisibleRow: Int? = nil
+        previewStartTopVisibleRow: Int? = nil,
+        fileSystemScope: FileSystemScope = .unrestricted
     ) {
         self.currentDirectory = currentDirectory
         self.items = items
@@ -69,10 +81,13 @@ public struct PaneState: Equatable {
         self.paneWidthRatio = Self.clampedPaneWidthRatio(paneWidthRatio)
         self.messageWindowHeightRatio = Self.clampedMessageWindowHeightRatio(messageWindowHeightRatio)
         self.messageLines = messageLines
+        self.transientOperationMessage = transientOperationMessage
         self.navigationHistory = navigationHistory.prepared(for: currentDirectory)
         self.errorMessage = errorMessage
         self.previewItemURL = previewItemURL
         self.previewStartTopVisibleRow = previewStartTopVisibleRow
+        self.fileSystemScope = fileSystemScope
+        self.archiveBrowsingState = nil
     }
 
     public var visibleItems: [FileItem] {
@@ -80,11 +95,31 @@ public struct PaneState: Equatable {
     }
 
     public var displayPath: String {
+        if let archiveBrowsingState {
+            return archiveBrowsingState.directoryPath.isEmpty
+                ? archiveBrowsingState.archiveName
+                : "\(archiveBrowsingState.archiveName)/\(archiveBrowsingState.directoryPath)"
+        }
         if let tagFilterName {
             return "タグ: \(tagFilterName)"
         }
 
         return currentDirectory.path
+    }
+
+    public var isBrowsingArchive: Bool {
+        archiveBrowsingState != nil
+    }
+
+    /// ZIP 表示中に選択している仮想項目の参照です。通常のファイル操作に URL として渡してはいけません。
+    public var selectedArchiveEntryReference: ArchiveEntryReference? {
+        guard let archiveBrowsingState, let selectedItem else { return nil }
+        let path = archiveBrowsingState.directoryPath + selectedItem.name + (selectedItem.isDirectory ? "/" : "")
+        return ArchiveEntryReference(
+            archiveURL: archiveBrowsingState.archiveURL,
+            entryPath: path,
+            isDirectory: selectedItem.isDirectory
+        )
     }
 
     public var visibleSelectedIndex: Int? {
@@ -186,6 +221,9 @@ public struct PaneState: Equatable {
     }
 
     public mutating func loadCurrentDirectory(using service: DirectoryListingProviding) {
+        guard archiveBrowsingState == nil else {
+            return
+        }
         items = FileItem.parentDirectoryItem(for: currentDirectory).map { [$0] } ?? []
         do {
             items += try service.contents(of: currentDirectory, includingHiddenFiles: showsHiddenFiles)
@@ -202,6 +240,9 @@ public struct PaneState: Equatable {
     }
 
     public mutating func reloadCurrentDirectory(using service: DirectoryListingProviding) {
+        guard archiveBrowsingState == nil else {
+            return
+        }
         let selectedItemURL = selectedItem?.url
         loadCurrentDirectory(using: service)
 
@@ -248,6 +289,10 @@ public struct PaneState: Equatable {
         if messageLines.count > 200 {
             messageLines.removeFirst(messageLines.count - 200)
         }
+    }
+
+    public mutating func setTransientOperationMessage(_ message: String?) {
+        transientOperationMessage = message?.isEmpty == true ? nil : message
     }
 
     public mutating func moveSelection(by delta: Int) {
@@ -575,6 +620,15 @@ public struct PaneState: Equatable {
             return false
         }
 
+        if archiveBrowsingState != nil {
+            if selectedListItem.isParentDirectoryItem {
+                return moveToParentDirectory(using: service)
+            }
+            guard selectedListItem.isDirectory else { return false }
+            enterArchiveDirectory(named: selectedListItem.name)
+            return true
+        }
+
         if selectedListItem.isParentDirectoryItem {
             return moveToParentDirectory(
                 selectingPreviousDirectory: selectingPreviousDirectory,
@@ -601,9 +655,15 @@ public struct PaneState: Equatable {
         selectingPreviousDirectory: Bool = true,
         using service: DirectoryListingProviding
     ) -> Bool {
+        if archiveBrowsingState != nil {
+            return moveArchiveToParent(using: service)
+        }
         let previousDirectory = currentDirectory
         let parentDirectory = URL(fileURLWithPath: currentDirectory.deletingLastPathComponent().path)
         guard parentDirectory != currentDirectory else {
+            return false
+        }
+        guard fileSystemScope.contains(parentDirectory) else {
             return false
         }
 
@@ -625,6 +685,10 @@ public struct PaneState: Equatable {
         using service: DirectoryListingProviding,
         recordsHistory: Bool = true
     ) {
+        guard fileSystemScope.contains(directory) else {
+            return
+        }
+        archiveBrowsingState = nil
         currentDirectory = directory
         selectedIndex = 0
         clearMarkedItems()
@@ -673,6 +737,24 @@ public struct PaneState: Equatable {
         markedItemURLs.removeAll()
     }
 
+    public mutating func beginArchiveBrowsing(archiveURL: URL, entries: [ArchiveEntryInfo]) {
+        archiveBrowsingState = ArchiveBrowsingState(
+            archiveURL: archiveURL,
+            archiveName: archiveURL.lastPathComponent,
+            entries: entries,
+            directoryPath: ""
+        )
+        selectedIndex = 0
+        clearMarkedItems()
+        endIncrementalSearch()
+        endWildcardMark()
+        clearFileMask()
+        clearTagFilter()
+        endFileMaskInput()
+        loadArchiveDirectoryItems()
+        errorMessage = nil
+    }
+
     /// 指定した項目のマークだけを解除します。
     /// ファイル操作の項目別実行結果を反映するために使用します。
     public mutating func unmarkItems(at urls: some Sequence<URL>) {
@@ -685,6 +767,85 @@ public struct PaneState: Equatable {
             .filter { !$0.isSpecialItem }
             .map(\.url))
         markedItemURLs.formIntersection(listedItemURLs)
+    }
+
+    private mutating func enterArchiveDirectory(named name: String) {
+        guard var archiveBrowsingState else { return }
+        archiveBrowsingState.directoryPath += name + "/"
+        self.archiveBrowsingState = archiveBrowsingState
+        selectedIndex = 0
+        loadArchiveDirectoryItems()
+    }
+
+    private mutating func moveArchiveToParent(using service: DirectoryListingProviding) -> Bool {
+        guard var archiveBrowsingState else { return false }
+        if archiveBrowsingState.directoryPath.isEmpty {
+            let archiveURL = archiveBrowsingState.archiveURL
+            self.archiveBrowsingState = nil
+            selectedIndex = 0
+            loadCurrentDirectory(using: service)
+            selectItem(withURL: archiveURL)
+            return true
+        }
+
+        let components = archiveBrowsingState.directoryPath.split(separator: "/")
+        archiveBrowsingState.directoryPath = components.dropLast().joined(separator: "/")
+        if !archiveBrowsingState.directoryPath.isEmpty {
+            archiveBrowsingState.directoryPath += "/"
+        }
+        self.archiveBrowsingState = archiveBrowsingState
+        selectedIndex = 0
+        loadArchiveDirectoryItems()
+        return true
+    }
+
+    private mutating func loadArchiveDirectoryItems() {
+        guard let archiveBrowsingState else { return }
+        let prefix = archiveBrowsingState.directoryPath
+        var children: [String: (isDirectory: Bool, byteSize: Int64)] = [:]
+        for entry in archiveBrowsingState.entries where entry.path.hasPrefix(prefix) {
+            let remainder = String(entry.path.dropFirst(prefix.count))
+            guard !remainder.isEmpty else { continue }
+            let components = remainder.split(separator: "/", omittingEmptySubsequences: true)
+            guard let first = components.first else { continue }
+            let name = String(first)
+            let isDirectory = components.count > 1 || entry.isDirectory
+            let path = prefix + name + (isDirectory ? "/" : "")
+            if children[path] == nil {
+                children[path] = (isDirectory, entry.uncompressedSize)
+            }
+        }
+
+        let parentItem: [FileItem]
+        if prefix.isEmpty {
+            parentItem = []
+        } else {
+            parentItem = [FileItem(
+                url: archiveVirtualURL(for: ".."),
+                isDirectory: true,
+                name: "..",
+                kind: .parentDirectory
+            )]
+        }
+        items = parentItem + children
+            .map { path, value in
+                FileItem(
+                    url: archiveVirtualURL(for: path),
+                    isDirectory: value.isDirectory,
+                    name: String(path.split(separator: "/").last ?? ""),
+                    byteSize: value.isDirectory ? nil : value.byteSize
+                )
+            }
+            .sorted {
+                if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+        clampSelectionToVisibleItems()
+    }
+
+    private func archiveVirtualURL(for path: String) -> URL {
+        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+        return URL(string: "mafx-archive://entry/\(encodedPath)")!
     }
 
     private mutating func selectNextSearchMatch(offset: Int) {
@@ -714,6 +875,11 @@ public struct PaneState: Equatable {
     private mutating func selectNextMatch(pattern: String, mode: FileNameMatchMode, offset: Int) {
         let candidateIndexes = visibleItemIndexes(matching: pattern, mode: mode)
         guard !candidateIndexes.isEmpty else {
+            return
+        }
+
+        if offset == 0 {
+            selectedIndex = candidateIndexes.first { $0 >= selectedIndex } ?? candidateIndexes[0]
             return
         }
 

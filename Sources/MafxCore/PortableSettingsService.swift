@@ -121,6 +121,7 @@ private struct PortableSettingsDocument: Codable {
 
 private struct PortableSettingsV1: Codable {
     var showsHiddenFiles: Bool?
+    var incrementalSearchPriority: Bool?
     var showsPreviewPane: Bool?
     var usesAlternatingRowBackgrounds: Bool?
     var showsFileIcons: Bool?
@@ -135,6 +136,7 @@ private struct PortableSettingsV1: Codable {
     var confirmsBeforeTrash: Bool?
     var confirmsBeforeQuit: Bool?
     var allowsExternalFileDrag: Bool?
+    var treatZipAsDirectory: Bool?
     var fileOperationDetailLogLimit: Int?
     var fileListFontSize: Int?
     var appLanguage: AppLanguage?
@@ -153,6 +155,7 @@ private struct PortableSettingsV1: Codable {
 
     init(state: SettingsState) {
         showsHiddenFiles = state.showsHiddenFiles
+        incrementalSearchPriority = state.incrementalSearchPriority
         showsPreviewPane = state.showsPreviewPane
         usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
         showsFileIcons = state.showsFileIcons
@@ -167,6 +170,7 @@ private struct PortableSettingsV1: Codable {
         confirmsBeforeTrash = state.confirmsBeforeTrash
         confirmsBeforeQuit = state.confirmsBeforeQuit
         allowsExternalFileDrag = state.allowsExternalFileDrag
+        treatZipAsDirectory = state.treatZipAsDirectory
         fileOperationDetailLogLimit = state.fileOperationDetailLogLimit
         fileListFontSize = state.fileListFontSize
         appLanguage = state.appLanguage
@@ -187,6 +191,7 @@ private struct PortableSettingsV1: Codable {
     func settingsState(defaultState: SettingsState) throws -> SettingsState {
         SettingsState(
             showsHiddenFiles: showsHiddenFiles ?? defaultState.showsHiddenFiles,
+            incrementalSearchPriority: incrementalSearchPriority ?? defaultState.incrementalSearchPriority,
             showsPreviewPane: showsPreviewPane ?? defaultState.showsPreviewPane,
             usesAlternatingRowBackgrounds: usesAlternatingRowBackgrounds
                 ?? defaultState.usesAlternatingRowBackgrounds,
@@ -203,6 +208,7 @@ private struct PortableSettingsV1: Codable {
             confirmsBeforeTrash: confirmsBeforeTrash ?? defaultState.confirmsBeforeTrash,
             confirmsBeforeQuit: confirmsBeforeQuit ?? defaultState.confirmsBeforeQuit,
             allowsExternalFileDrag: allowsExternalFileDrag ?? defaultState.allowsExternalFileDrag,
+            treatZipAsDirectory: treatZipAsDirectory ?? defaultState.treatZipAsDirectory,
             fileOperationDetailLogLimit: max(
                 0,
                 fileOperationDetailLogLimit ?? defaultState.fileOperationDetailLogLimit

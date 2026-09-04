@@ -542,6 +542,7 @@ public extension DisplayTheme {
 }
 
 public enum SettingsToggleID: Equatable {
+    case incrementalSearchPriority
     case showPreviewPane
     case showHiddenFiles
     case useAlternatingRowBackgrounds
@@ -557,6 +558,7 @@ public enum SettingsToggleID: Equatable {
     case confirmBeforeTrash
     case confirmBeforeQuit
     case allowExternalFileDrag
+    case treatZipAsDirectory
 }
 
 public enum SettingsChoiceID: Equatable {
@@ -667,6 +669,7 @@ public struct SettingsState: Equatable {
     public private(set) var focusedItemIndex: Int
     public private(set) var focusArea: SettingsFocusArea
     public private(set) var showsHiddenFiles: Bool
+    public private(set) var incrementalSearchPriority: Bool
     public private(set) var showsPreviewPane: Bool
     public private(set) var usesAlternatingRowBackgrounds: Bool
     public private(set) var showsFileIcons: Bool
@@ -681,6 +684,7 @@ public struct SettingsState: Equatable {
     public private(set) var confirmsBeforeTrash: Bool
     public private(set) var confirmsBeforeQuit: Bool
     public private(set) var allowsExternalFileDrag: Bool
+    public private(set) var treatZipAsDirectory: Bool
     public private(set) var fileOperationDetailLogLimit: Int
     public private(set) var fileListFontSize: Int
     public private(set) var appLanguage: AppLanguage
@@ -703,6 +707,7 @@ public struct SettingsState: Equatable {
         focusedItemIndex: Int = 0,
         focusArea: SettingsFocusArea = .items,
         showsHiddenFiles: Bool = false,
+        incrementalSearchPriority: Bool = false,
         showsPreviewPane: Bool = false,
         usesAlternatingRowBackgrounds: Bool = false,
         showsFileIcons: Bool = true,
@@ -717,6 +722,7 @@ public struct SettingsState: Equatable {
         confirmsBeforeTrash: Bool = true,
         confirmsBeforeQuit: Bool = true,
         allowsExternalFileDrag: Bool = false,
+        treatZipAsDirectory: Bool = true,
         fileOperationDetailLogLimit: Int = 10,
         fileListFontSize: Int = FileListFontSize.standard,
         appLanguage: AppLanguage = .system,
@@ -738,6 +744,7 @@ public struct SettingsState: Equatable {
         self.focusedItemIndex = focusedItemIndex
         self.focusArea = focusArea
         self.showsHiddenFiles = showsHiddenFiles
+        self.incrementalSearchPriority = incrementalSearchPriority
         self.showsPreviewPane = showsPreviewPane
         self.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
         self.showsFileIcons = showsFileIcons
@@ -752,6 +759,7 @@ public struct SettingsState: Equatable {
         self.confirmsBeforeTrash = confirmsBeforeTrash
         self.confirmsBeforeQuit = confirmsBeforeQuit
         self.allowsExternalFileDrag = allowsExternalFileDrag
+        self.treatZipAsDirectory = treatZipAsDirectory
         self.fileOperationDetailLogLimit = Self.normalizedNonNegativeInteger(fileOperationDetailLogLimit)
         self.fileListFontSize = FileListFontSize.normalized(fileListFontSize)
         self.appLanguage = appLanguage
@@ -890,6 +898,8 @@ public struct SettingsState: Equatable {
 
     public func isToggleOn(_ toggleID: SettingsToggleID) -> Bool {
         switch toggleID {
+        case .incrementalSearchPriority:
+            return incrementalSearchPriority
         case .showPreviewPane:
             return showsPreviewPane
         case .showHiddenFiles:
@@ -920,11 +930,15 @@ public struct SettingsState: Equatable {
             return confirmsBeforeQuit
         case .allowExternalFileDrag:
             return allowsExternalFileDrag
+        case .treatZipAsDirectory:
+            return treatZipAsDirectory
         }
     }
 
     public mutating func setToggle(_ toggleID: SettingsToggleID, isOn: Bool) {
         switch toggleID {
+        case .incrementalSearchPriority:
+            incrementalSearchPriority = isOn
         case .showPreviewPane:
             showsPreviewPane = isOn
         case .showHiddenFiles:
@@ -955,6 +969,8 @@ public struct SettingsState: Equatable {
             confirmsBeforeQuit = isOn
         case .allowExternalFileDrag:
             allowsExternalFileDrag = isOn
+        case .treatZipAsDirectory:
+            treatZipAsDirectory = isOn
         }
     }
 
@@ -1148,6 +1164,8 @@ public struct SettingsState: Equatable {
 
     private mutating func toggle(_ toggleID: SettingsToggleID) {
         switch toggleID {
+        case .incrementalSearchPriority:
+            incrementalSearchPriority.toggle()
         case .showPreviewPane:
             showsPreviewPane.toggle()
         case .showHiddenFiles:
@@ -1178,6 +1196,8 @@ public struct SettingsState: Equatable {
             confirmsBeforeQuit.toggle()
         case .allowExternalFileDrag:
             allowsExternalFileDrag.toggle()
+        case .treatZipAsDirectory:
+            treatZipAsDirectory.toggle()
         }
     }
 
@@ -1231,6 +1251,7 @@ public struct AppSettings: Codable, Equatable {
     public static let defaultPreviewPaneWidthRatio = 0.32
 
     public var showsHiddenFiles: Bool
+    public var incrementalSearchPriority: Bool
     public var showsPreviewPane: Bool
     public var usesAlternatingRowBackgrounds: Bool
     public var showsFileIcons: Bool
@@ -1245,6 +1266,7 @@ public struct AppSettings: Codable, Equatable {
     public var confirmsBeforeTrash: Bool
     public var confirmsBeforeQuit: Bool
     public var allowsExternalFileDrag: Bool
+    public var treatZipAsDirectory: Bool
     public var fileOperationDetailLogLimit: Int
     public var fileListFontSize: Int
     public var appLanguage: AppLanguage
@@ -1271,6 +1293,7 @@ public struct AppSettings: Codable, Equatable {
 
     public init(
         showsHiddenFiles: Bool = false,
+        incrementalSearchPriority: Bool = false,
         showsPreviewPane: Bool = false,
         usesAlternatingRowBackgrounds: Bool = false,
         showsFileIcons: Bool = true,
@@ -1285,6 +1308,7 @@ public struct AppSettings: Codable, Equatable {
         confirmsBeforeTrash: Bool = true,
         confirmsBeforeQuit: Bool = true,
         allowsExternalFileDrag: Bool = false,
+        treatZipAsDirectory: Bool = true,
         fileOperationDetailLogLimit: Int = 10,
         fileListFontSize: Int = FileListFontSize.standard,
         appLanguage: AppLanguage = .system,
@@ -1310,6 +1334,7 @@ public struct AppSettings: Codable, Equatable {
         fileTypeColorScope: FileTypeColorScope = .fileName
     ) {
         self.showsHiddenFiles = showsHiddenFiles
+        self.incrementalSearchPriority = incrementalSearchPriority
         self.showsPreviewPane = showsPreviewPane
         self.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
         self.showsFileIcons = showsFileIcons
@@ -1324,6 +1349,7 @@ public struct AppSettings: Codable, Equatable {
         self.confirmsBeforeTrash = confirmsBeforeTrash
         self.confirmsBeforeQuit = confirmsBeforeQuit
         self.allowsExternalFileDrag = allowsExternalFileDrag
+        self.treatZipAsDirectory = treatZipAsDirectory
         self.fileOperationDetailLogLimit = Self.normalizedNonNegativeInteger(fileOperationDetailLogLimit)
         self.fileListFontSize = FileListFontSize.normalized(fileListFontSize)
         self.appLanguage = appLanguage
@@ -1367,6 +1393,7 @@ public struct AppSettings: Codable, Equatable {
     public var settingsState: SettingsState {
         SettingsState(
             showsHiddenFiles: showsHiddenFiles,
+            incrementalSearchPriority: incrementalSearchPriority,
             showsPreviewPane: showsPreviewPane,
             usesAlternatingRowBackgrounds: usesAlternatingRowBackgrounds,
             showsFileIcons: showsFileIcons,
@@ -1381,6 +1408,7 @@ public struct AppSettings: Codable, Equatable {
             confirmsBeforeTrash: confirmsBeforeTrash,
             confirmsBeforeQuit: confirmsBeforeQuit,
             allowsExternalFileDrag: allowsExternalFileDrag,
+            treatZipAsDirectory: treatZipAsDirectory,
             fileOperationDetailLogLimit: fileOperationDetailLogLimit,
             fileListFontSize: fileListFontSize,
             appLanguage: appLanguage,
@@ -1417,6 +1445,7 @@ public struct AppSettings: Codable, Equatable {
 
     public mutating func applySettingsState(_ state: SettingsState) {
         showsHiddenFiles = state.showsHiddenFiles
+        incrementalSearchPriority = state.incrementalSearchPriority
         showsPreviewPane = state.showsPreviewPane
         usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
         showsFileIcons = state.showsFileIcons
@@ -1431,6 +1460,7 @@ public struct AppSettings: Codable, Equatable {
         confirmsBeforeTrash = state.confirmsBeforeTrash
         confirmsBeforeQuit = state.confirmsBeforeQuit
         allowsExternalFileDrag = state.allowsExternalFileDrag
+        treatZipAsDirectory = state.treatZipAsDirectory
         fileOperationDetailLogLimit = Self.normalizedNonNegativeInteger(state.fileOperationDetailLogLimit)
         fileListFontSize = FileListFontSize.normalized(state.fileListFontSize)
         appLanguage = state.appLanguage
@@ -1513,9 +1543,19 @@ public extension SettingsState {
                 choiceID: .returnKeyBehavior
             ),
             SettingsItem(
+                title: "Treat ZIP files as directories",
+                localizationKey: "settings.item.treatZipAsDirectory",
+                toggleID: .treatZipAsDirectory
+            ),
+            SettingsItem(
                 title: "Incremental search",
                 localizationKey: "settings.item.incrementalSearchMatchMode",
                 choiceID: .incrementalSearchMatchMode
+            ),
+            SettingsItem(
+                title: "Incremental search priority",
+                localizationKey: "settings.item.incrementalSearchPriority",
+                toggleID: .incrementalSearchPriority
             ),
             SettingsItem(
                 title: "Show preview pane",

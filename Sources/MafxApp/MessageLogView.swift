@@ -6,6 +6,7 @@ final class MessageLogView: NSView {
     private let textView = MessageTextView()
     private let scrollView = NSScrollView()
     private var renderedMessages: [String]?
+    private var renderedTransientMessage: String?
     private var renderedTheme: DisplayTheme?
     private var renderedTitle: String?
 
@@ -23,7 +24,7 @@ final class MessageLogView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func render(messages: [String], theme: DisplayTheme = .light) {
+    func render(messages: [String], transientMessage: String? = nil, theme: DisplayTheme = .light) {
         let title = L10n.string("messageLog.title")
         if renderedTheme != theme {
             applyTheme(theme)
@@ -33,12 +34,14 @@ final class MessageLogView: NSView {
             titleLabel.stringValue = title
             renderedTitle = title
         }
-        guard renderedMessages != messages else {
+        guard renderedMessages != messages || renderedTransientMessage != transientMessage else {
             return
         }
 
-        textView.string = messages.joined(separator: "\n")
+        let displayedMessages = messages + (transientMessage.map { [$0] } ?? [])
+        textView.string = displayedMessages.joined(separator: "\n")
         renderedMessages = messages
+        renderedTransientMessage = transientMessage
         scrollToBottom()
     }
 

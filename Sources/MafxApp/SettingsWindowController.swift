@@ -764,6 +764,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         dataSource.keyBindingSet = state.keyBindingSet
         dataSource.displayTheme = state.displayThemeSet.selectedTheme
         dataSource.fileTypeAssociations = state.fileTypeAssociations
+        dataSource.incrementalSearchPriority = state.incrementalSearchPriority
         dataSource.showsPreviewPane = state.showsPreviewPane
         dataSource.showsHiddenFiles = state.showsHiddenFiles
         dataSource.usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
@@ -779,6 +780,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         dataSource.confirmsBeforeTrash = state.confirmsBeforeTrash
         dataSource.confirmsBeforeQuit = state.confirmsBeforeQuit
         dataSource.allowsExternalFileDrag = state.allowsExternalFileDrag
+        dataSource.treatZipAsDirectory = state.treatZipAsDirectory
         dataSource.fileOperationDetailLogLimit = state.fileOperationDetailLogLimit
         dataSource.fileListFontSize = state.fileListFontSize
         dataSource.appLanguage = state.appLanguage
@@ -914,6 +916,10 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             userInfo[SettingsNotificationKey.showsHiddenFiles] = newState.showsHiddenFiles
         }
 
+        if oldState.incrementalSearchPriority != newState.incrementalSearchPriority {
+            userInfo[SettingsNotificationKey.incrementalSearchPriority] = newState.incrementalSearchPriority
+        }
+
         if oldState.usesAlternatingRowBackgrounds != newState.usesAlternatingRowBackgrounds {
             userInfo[SettingsNotificationKey.usesAlternatingRowBackgrounds] = newState.usesAlternatingRowBackgrounds
         }
@@ -964,6 +970,10 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
 
         if oldState.allowsExternalFileDrag != newState.allowsExternalFileDrag {
             userInfo[SettingsNotificationKey.allowsExternalFileDrag] = newState.allowsExternalFileDrag
+        }
+
+        if oldState.treatZipAsDirectory != newState.treatZipAsDirectory {
+            userInfo[SettingsNotificationKey.treatZipAsDirectory] = newState.treatZipAsDirectory
         }
 
         if oldState.fileOperationDetailLogLimit != newState.fileOperationDetailLogLimit {
@@ -1306,6 +1316,11 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             state.setToggle(.showHiddenFiles, isOn: showsHiddenFiles)
         }
 
+        if let incrementalSearchPriority = notification.userInfo?[SettingsNotificationKey.incrementalSearchPriority] as? Bool {
+            committedState.setToggle(.incrementalSearchPriority, isOn: incrementalSearchPriority)
+            state.setToggle(.incrementalSearchPriority, isOn: incrementalSearchPriority)
+        }
+
         if let showsPreviewPane = notification.userInfo?[SettingsNotificationKey.showsPreviewPane] as? Bool {
             committedState.setToggle(.showPreviewPane, isOn: showsPreviewPane)
             state.setToggle(.showPreviewPane, isOn: showsPreviewPane)
@@ -1384,6 +1399,11 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         if let allowsExternalFileDrag = notification.userInfo?[SettingsNotificationKey.allowsExternalFileDrag] as? Bool {
             committedState.setToggle(.allowExternalFileDrag, isOn: allowsExternalFileDrag)
             state.setToggle(.allowExternalFileDrag, isOn: allowsExternalFileDrag)
+        }
+
+        if let treatZipAsDirectory = notification.userInfo?[SettingsNotificationKey.treatZipAsDirectory] as? Bool {
+            committedState.setToggle(.treatZipAsDirectory, isOn: treatZipAsDirectory)
+            state.setToggle(.treatZipAsDirectory, isOn: treatZipAsDirectory)
         }
 
         if let fileOperationDetailLogLimit = notification.userInfo?[SettingsNotificationKey.fileOperationDetailLogLimit] as? Int {
@@ -2279,6 +2299,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     var fileTypeAssociations: [FileTypeAssociation] = []
     var keyBindingSet: KeyBindingSet = .default
     var displayTheme: DisplayTheme = .light
+    var incrementalSearchPriority = false
     var showsPreviewPane = false
     var showsHiddenFiles = false
     var usesAlternatingRowBackgrounds = false
@@ -2294,6 +2315,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     var confirmsBeforeTrash = true
     var confirmsBeforeQuit = true
     var allowsExternalFileDrag = false
+    var treatZipAsDirectory = false
     var fileOperationDetailLogLimit = 10
     var fileListFontSize = FileListFontSize.standard
     var appLanguage: AppLanguage = .system
@@ -2351,7 +2373,14 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         let startupPathField = cell.viewWithTag(SettingsViewTag.startupPathField) as? NSTextField ?? NSTextField(string: "")
         let numericField = cell.viewWithTag(SettingsViewTag.numericField) as? NSTextField ?? NSTextField(string: "")
         let helpField = cell.viewWithTag(SettingsViewTag.helpField) as? NSTextField ?? NSTextField(labelWithString: "")
-        let controlStack = cell.subviews.compactMap { $0 as? NSStackView }.first ?? NSStackView()
+        let controlStackIdentifier = NSUserInterfaceItemIdentifier("settingControlStack")
+        let controlStack = cell.subviews.first {
+            $0.identifier == controlStackIdentifier
+        } as? NSStackView ?? NSStackView()
+        let labelStackIdentifier = NSUserInterfaceItemIdentifier("settingLabelStack")
+        let labelStack = cell.subviews.first {
+            $0.identifier == labelStackIdentifier
+        } as? NSStackView ?? NSStackView()
 
         textField.stringValue = cellTitle(for: row)
         textField.font = .systemFont(ofSize: 13)
@@ -2386,21 +2415,30 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         helpField.tag = SettingsViewTag.helpField
         helpField.font = .systemFont(ofSize: 11)
         helpField.textColor = .secondaryLabelColor
-        helpField.lineBreakMode = .byTruncatingTail
+        helpField.lineBreakMode = .byWordWrapping
+        helpField.maximumNumberOfLines = 2
+        helpField.usesSingleLineMode = false
         configureHelpField(helpField, for: row)
         controlStack.orientation = .vertical
         controlStack.alignment = .trailing
         controlStack.spacing = 4
         controlStack.translatesAutoresizingMaskIntoConstraints = false
+        controlStack.identifier = controlStackIdentifier
         controlStack.isHidden = choiceID(for: row) == nil && numericID(for: row) == nil
+        labelStack.orientation = .vertical
+        labelStack.alignment = .leading
+        labelStack.spacing = 2
+        labelStack.translatesAutoresizingMaskIntoConstraints = false
+        labelStack.identifier = labelStackIdentifier
 
         if textField.superview == nil {
             cell.addSubview(checkbox)
-            cell.addSubview(textField)
+            labelStack.addArrangedSubview(textField)
+            labelStack.addArrangedSubview(helpField)
+            cell.addSubview(labelStack)
             controlStack.addArrangedSubview(popupButton)
             controlStack.addArrangedSubview(startupPathField)
             controlStack.addArrangedSubview(numericField)
-            controlStack.addArrangedSubview(helpField)
             cell.addSubview(controlStack)
             cell.textField = textField
             cell.identifier = identifier
@@ -2408,16 +2446,15 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
             NSLayoutConstraint.activate([
                 checkbox.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
                 checkbox.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
-                textField.trailingAnchor.constraint(lessThanOrEqualTo: controlStack.leadingAnchor, constant: -10),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                labelStack.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+                labelStack.trailingAnchor.constraint(lessThanOrEqualTo: controlStack.leadingAnchor, constant: -10),
+                labelStack.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 controlStack.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
                 controlStack.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 controlStack.widthAnchor.constraint(equalToConstant: 240),
                 popupButton.widthAnchor.constraint(equalTo: controlStack.widthAnchor),
                 startupPathField.widthAnchor.constraint(equalTo: controlStack.widthAnchor),
-                numericField.widthAnchor.constraint(equalTo: controlStack.widthAnchor),
-                helpField.widthAnchor.constraint(equalTo: controlStack.widthAnchor)
+                numericField.widthAnchor.constraint(equalTo: controlStack.widthAnchor)
             ])
         }
 
@@ -2683,7 +2720,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        if isStartupPathChoice(at: row) || isNumericItem(at: row) {
+        if isStartupPathChoice(at: row) || isNumericItem(at: row) || hasHelp(for: row) {
             return 58
         }
 
@@ -2700,6 +2737,8 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
 
     private func checkboxState(for item: SettingsItem) -> NSControl.StateValue {
         switch item.toggleID {
+        case .incrementalSearchPriority:
+            return incrementalSearchPriority ? .on : .off
         case .showPreviewPane:
             return showsPreviewPane ? .on : .off
         case .showHiddenFiles:
@@ -2730,6 +2769,8 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
             return confirmsBeforeQuit ? .on : .off
         case .allowExternalFileDrag:
             return allowsExternalFileDrag ? .on : .off
+        case .treatZipAsDirectory:
+            return treatZipAsDirectory ? .on : .off
         case nil:
             return .off
         }
@@ -2867,19 +2908,32 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     }
 
     private func configureHelpField(_ textField: NSTextField, for row: Int) {
-        guard let numericID = numericID(for: row) else {
-            textField.isHidden = true
+        if let numericID = numericID(for: row) {
+            switch numericID {
+            case .fileOperationDetailLogLimit:
+                textField.stringValue = L10n.string("settings.help.fileOperationDetailLogLimit")
+            case .fileListFontSize:
+                textField.stringValue = L10n.string("settings.help.fileListFontSize")
+            }
+            textField.isHidden = false
             return
         }
 
-        switch numericID {
-        case .fileOperationDetailLogLimit:
-            textField.stringValue = L10n.string("settings.help.fileOperationDetailLogLimit")
+        if items.indices.contains(row), items[row].toggleID == .incrementalSearchPriority {
+            textField.stringValue = L10n.string("settings.help.incrementalSearchPriority")
             textField.isHidden = false
-        case .fileListFontSize:
-            textField.stringValue = L10n.string("settings.help.fileListFontSize")
-            textField.isHidden = false
+            return
         }
+
+        textField.isHidden = true
+    }
+
+    private func hasHelp(for row: Int) -> Bool {
+        guard mode == .settings, items.indices.contains(row) else {
+            return false
+        }
+
+        return numericID(for: row) != nil || items[row].toggleID == .incrementalSearchPriority
     }
 
     private func isStartupPathChoice(at row: Int) -> Bool {

@@ -98,7 +98,7 @@ final class PaneStateTests: XCTestCase {
     }
 
     func testMoveSelectionByPageUsesVisibleRowCountMinusOne() {
-        let root = URL(fileURLWithPath: "/tmp/root")
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("root")
         let items = (0..<10).map { index in
             FileItem(url: root.appendingPathComponent("file-\(index)"), isDirectory: false)
         }
@@ -496,6 +496,23 @@ final class PaneStateTests: XCTestCase {
 
         XCTAssertEqual(state.markedItemURLs, [first])
         XCTAssertEqual(state.selectedIndex, 0)
+    }
+
+    func testMarkRangeAfterMarkingFirstItemAndMovingCursorMarksThroughSelection() {
+        let root = URL(fileURLWithPath: "/tmp/root")
+        let files = (1...4).map { root.appendingPathComponent("file\($0).txt") }
+        var state = PaneState(
+            currentDirectory: root,
+            items: files.map { FileItem(url: $0, isDirectory: false) },
+            selectedIndex: 0
+        )
+
+        state.toggleMarkForSelectedItem(moveSelectionBy: 1)
+        state.moveSelection(by: 2)
+        state.markRangeFromPreviousMarkedItemToSelectedItem()
+
+        XCTAssertEqual(state.selectedIndex, 3)
+        XCTAssertEqual(state.markedItemURLs, Set(files))
     }
 
     func testMarkRangeFromPreviousMarkedItemToSelectedItemMarksVisibleRange() {
@@ -993,6 +1010,62 @@ final class PaneStateTests: XCTestCase {
 
         XCTAssertEqual(state.incrementalSearchQuery, "Br")
         XCTAssertEqual(state.selectedItem?.name, "Bravo.txt")
+    }
+
+    func testIncrementalSearchKeepsCurrentMatchingSelection() {
+        let root = URL(fileURLWithPath: "/tmp/root")
+        var state = PaneState(
+            currentDirectory: root,
+            items: [
+                FileItem(url: root.appendingPathComponent("File-01"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File-02"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File-03"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File1"), isDirectory: false)
+            ],
+            selectedIndex: 2
+        )
+
+        state.beginIncrementalSearch()
+        state.updateIncrementalSearchQuery("File-0")
+
+        XCTAssertEqual(state.selectedItem?.name, "File-03")
+    }
+
+    func testIncrementalSearchSelectsFirstMatchAtOrAfterCurrentSelection() {
+        let root = URL(fileURLWithPath: "/tmp/root")
+        var state = PaneState(
+            currentDirectory: root,
+            items: [
+                FileItem(url: root.appendingPathComponent("Other"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File-01"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File-02"), isDirectory: false)
+            ],
+            selectedIndex: 0
+        )
+
+        state.beginIncrementalSearch()
+        state.updateIncrementalSearchQuery("File-")
+
+        XCTAssertEqual(state.selectedItem?.name, "File-01")
+    }
+
+    func testIncrementalSearchWrapsToFirstMatchWhenNoMatchFollowsCurrentSelection() {
+        let root = URL(fileURLWithPath: "/tmp/root")
+        var state = PaneState(
+            currentDirectory: root,
+            items: [
+                FileItem(url: root.appendingPathComponent("File-01"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File-02"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File-03"), isDirectory: false),
+                FileItem(url: root.appendingPathComponent("File1"), isDirectory: false)
+            ],
+            selectedIndex: 3
+        )
+
+        state.beginIncrementalSearch()
+        state.updateIncrementalSearchQuery("File-0")
+
+        XCTAssertEqual(state.selectedItem?.name, "File-01")
     }
 
     func testIncrementalSearchUsesPrefixMatchWhenPatternHasNoWildcard() {
@@ -1729,6 +1802,22 @@ final class PaneStateTests: XCTestCase {
         XCTAssertEqual(state.messageLines.last, "message 204")
     }
 
+    func testTransientOperationMessageIsSeparateFromMessageLog() {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("root")
+        var state = PaneState(currentDirectory: root)
+
+        state.appendMessage("completed")
+        state.setTransientOperationMessage("copying")
+
+        XCTAssertEqual(state.messageLines, ["completed"])
+        XCTAssertEqual(state.transientOperationMessage, "copying")
+
+        state.setTransientOperationMessage(nil)
+
+        XCTAssertNil(state.transientOperationMessage)
+        XCTAssertEqual(state.messageLines, ["completed"])
+    }
+
     func testMoveToDirectoryRecordsNavigationHistory() {
         let root = URL(fileURLWithPath: "/tmp/root")
         let child = URL(fileURLWithPath: "/tmp/root/child")
@@ -1757,6 +1846,41 @@ final class PaneStateTests: XCTestCase {
         XCTAssertEqual(state.currentDirectory.path, child.path)
         XCTAssertEqual(state.navigationHistory.paths, [root.path, child.path])
         XCTAssertEqual(state.navigationHistory.currentIndex, 1)
+    }
+
+    func testArchiveBrowsingUsesVirtualHierarchyAndReturnsToPhysicalDirectory() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PaneStateArchiveTest", isDirectory: true)
+        let archiveURL = root.appendingPathComponent("sample.zip")
+        let archiveItem = FileItem(url: archiveURL, isDirectory: false)
+        let service = StubDirectoryListingService(contentsByDirectory: [root: [archiveItem]])
+        var state = PaneState(currentDirectory: root, items: [archiveItem])
+
+        state.beginArchiveBrowsing(archiveURL: archiveURL, entries: [
+            ArchiveEntryInfo(path: "readme.txt", isDirectory: false, uncompressedSize: 4, compressedSize: 4),
+            ArchiveEntryInfo(path: "folder/nested.txt", isDirectory: false, uncompressedSize: 6, compressedSize: 6)
+        ])
+
+        XCTAssertTrue(state.isBrowsingArchive)
+        XCTAssertEqual(state.currentDirectory, root)
+        XCTAssertEqual(state.displayPath, "sample.zip")
+        XCTAssertEqual(state.items.map(\.name), ["folder", "readme.txt"])
+        XCTAssertEqual(
+            state.selectedArchiveEntryReference,
+            ArchiveEntryReference(archiveURL: archiveURL, entryPath: "folder/", isDirectory: true)
+        )
+
+        XCTAssertTrue(state.enterSelectedDirectory(using: service))
+        XCTAssertEqual(state.displayPath, "sample.zip/folder/")
+        XCTAssertEqual(state.items.map(\.name), ["..", "nested.txt"])
+
+        state.selectItem(at: 0)
+        XCTAssertTrue(state.enterSelectedDirectory(using: service))
+        XCTAssertEqual(state.displayPath, "sample.zip")
+
+        XCTAssertTrue(state.moveToParentDirectory(using: service))
+        XCTAssertFalse(state.isBrowsingArchive)
+        XCTAssertEqual(state.currentDirectory, root)
+        XCTAssertEqual(state.selectedItem?.url, archiveURL)
     }
 }
 

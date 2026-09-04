@@ -114,7 +114,8 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
 
         applyTheme(theme)
         titleLabel.stringValue = title
-        pathLabel.stringValue = state.errorMessage ?? state.displayPath
+        let displayPath = state.tagFilterName.map { L10n.format("pane.tagFilter", $0) } ?? state.displayPath
+        pathLabel.stringValue = state.errorMessage ?? displayPath
         tagFilterColorMarkerView.isHidden = state.errorMessage != nil || state.tagFilterName == nil
         tagFilterColorMarkerView.markerColor = state.tagFilterColor?.nsColor
         sortLabel.stringValue = L10n.format("pane.sortLabel", state.sortDescriptor.localizedDisplayText)
@@ -571,7 +572,10 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         tableView.addTableColumn(extensionColumn)
         tableView.addTableColumn(sizeColumn)
         tableView.addTableColumn(modifiedColumn)
-        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        // 列幅は applyFileListLayout で表示領域に合わせて明示的に決める。
+        // NSTableView の自動調整に任せると、メニュー表示などの無関係な
+        // レイアウトイベントでも名前列の幅が変化することがある。
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.dataSource = dataSource
         tableView.delegate = dataSource
         dataSource.onSelectionChange = { [weak self] row in
@@ -714,8 +718,10 @@ final class FilePaneView: NSView, NSTextFieldDelegate {
         modifiedColumn.maxWidth = layout.modificationDateColumnWidth
         modifiedColumn.width = layout.modificationDateColumnWidth
 
-        let columnOriginX = tableView.rect(ofColumn: 0).minX
-        let availableColumnWidth = max(0, scrollView.contentView.bounds.width - columnOriginX)
+        // 列の座標系ではなく、スクロールビューの表示領域そのものを基準にする。
+        // rect(ofColumn:) の内部座標を混ぜると、再タイル時の列位置を二重に
+        // 差し引いてしまい、日付列の右側に不定の余白が生じる。
+        let availableColumnWidth = max(0, scrollView.contentView.bounds.width)
         let visibility = FileListColumnMetrics.responsiveVisibility(
             availableColumnWidth: availableColumnWidth,
             minimumNameColumnWidth: FileListColumnMetrics.minimumNameColumnWidth,
@@ -990,6 +996,8 @@ private final class FilePaneTableView: NSTableView {
 struct FileListColumnMetrics {
     private static let modificationDateText = "0000/00/00 00:00:00"
     private static let textHorizontalInset: CGFloat = 8
+    // AppKit のセル境界・フォント描画の端数で末尾が欠けないための余裕。
+    private static let modificationDateSafetyPadding: CGFloat = 4
     static let minimumNameColumnWidth: CGFloat = 160
 
     static func responsiveVisibility(
@@ -1026,7 +1034,9 @@ struct FileListColumnMetrics {
         textField.font = font
         let stringWidth = (modificationDateText as NSString).size(withAttributes: [.font: font]).width
         let fittingWidth = textField.fittingSize.width
-        return ceil(max(stringWidth, fittingWidth)) + textHorizontalInset * 2
+        return ceil(max(stringWidth, fittingWidth))
+            + textHorizontalInset * 2
+            + modificationDateSafetyPadding
     }
 
     static func nameColumnWidth(

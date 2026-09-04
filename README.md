@@ -1,11 +1,11 @@
 # Antlers
 
-バージョン: `0.5.0`
+バージョン: `0.6.0`
 
 Antlers は、macOS 向けのキーボードファーストな左右 2 ペイン型ファイラーです。
 キーボードによる素早い移動と、安全なファイル操作を重視しています。
 
-Version: `0.5.0`
+Version: `0.6.0`
 
 Antlers is a keyboard-first, dual-pane file manager for macOS.
 It focuses on fast navigation and safe file operations.
@@ -54,6 +54,24 @@ swift build
 swift run Antlers
 ```
 
+開発時には、次の起動オプションを利用できます。
+
+```sh
+swift run Antlers -- \
+  --confined-root /path/to/root \
+  --left-path subdirectory-a \
+  --right-path subdirectory-b \
+  --language ja \
+  --theme dark
+```
+
+- `--confined-root`: 操作対象を指定ディレクトリ以下に限定します。
+- `--left-path` / `--right-path`: 左右ペインの初期パスを指定します。`--confined-root` と併用した場合はルートからの相対パスです。
+- `--language`: 起動時の言語を指定します（`ja` / `en` / `system`）。
+- `--theme`: 起動時のテーマ ID を指定します。
+
+これらは開発・検証用の起動オプションです。
+
 テストは次のコマンドで実行できます。
 
 ```sh
@@ -73,6 +91,8 @@ macOS の `.app` バンドルを作成するには、次を実行します。`bu
 
 ### リリースノート / Release notes
 
+- [V0.6.0 リリースノート](docs/ja/releases/v0.6.0.md)
+- [V0.6.0 Release notes](docs/en/releases/v0.6.0.md)
 - [V0.3.0 リリースノート](docs/ja/releases/v0.3.0.md)
 - [V0.3.0 Release notes](docs/en/releases/v0.3.0.md)
 - [V0.2.0 リリースノート](docs/ja/releases/v0.2.0.md)
@@ -203,6 +223,24 @@ Run the test suite with:
 ```sh
 swift test
 ```
+
+For development and verification, you can pass startup options:
+
+```sh
+swift run Antlers -- \
+  --confined-root /path/to/root \
+  --left-path subdirectory-a \
+  --right-path subdirectory-b \
+  --language en \
+  --theme dark
+```
+
+- `--confined-root` limits operations to the specified directory and its contents.
+- `--left-path` and `--right-path` set the initial pane paths. With `--confined-root`, they are relative to the confined root.
+- `--language` sets the startup language (`ja`, `en`, or `system`).
+- `--theme` sets the startup theme ID.
+
+These options are intended for development and verification.
 
 To generate a macOS `.app` bundle, run:
 

@@ -11,6 +11,8 @@ Use `Tab` to switch the active pane, or `Left` and `Right` to activate a specifi
 
 By default, `Enter` opens the selected directory. Use `Backspace` to go to the parent directory. `Command+Left` and `Command+Right` move backward and forward through navigation history.
 
+When “Treat ZIP files as directories” is enabled in General, press `Enter` on a ZIP file to browse its contents in the pane. While browsing, you can open directories and press `Backspace` to move to the parent level inside the ZIP or return to the regular file list. See [ZIP and archive operations](archive-operations.md) for details.
+
 ## Preview files
 
 Press `V` to open an in-pane preview for the selected file. Press `Esc` or `Q` to return to the file list.
@@ -39,6 +41,8 @@ Press `T` to open Finder tags and search by the selected tag. `Shift+T` adds or 
 
 Press `F` to start incremental search. Choose prefix, contains, or exact matching in General settings.
 
+When “Incremental search priority” is enabled, unmodified letters, numbers, and symbols are used for search input first. While it is enabled, those keys do not execute their regular keybindings.
+
 `Shift+@` starts wildcard marking and `Shift+:` starts a file mask. Both support `*` and `?`, and confirmed patterns are saved in a shared history. Click the input field, or press `Up` or `Down`, to show the history; press `Return` to reuse a pattern.
 
-Continue with [File operations](file-operations.md) or [Keybindings](keybindings.md).
+Continue with [File operations](file-operations.md), [ZIP and archive operations](archive-operations.md), or [Keybindings](keybindings.md).

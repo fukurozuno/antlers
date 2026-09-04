@@ -12,15 +12,21 @@ let package = Package(
         .executable(name: "Antlers", targets: ["MafxApp"]),
         .library(name: "MafxCore", targets: ["MafxCore"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.0")
+    ],
     targets: [
         .executableTarget(
             name: "MafxApp",
             dependencies: ["MafxCore"]
         ),
-        .target(name: "MafxCore"),
+        .target(
+            name: "MafxCore",
+            dependencies: ["ZIPFoundation"]
+        ),
         .testTarget(
             name: "MafxCoreTests",
-            dependencies: ["MafxCore"]
+            dependencies: ["MafxCore", "ZIPFoundation"]
         ),
         .testTarget(
             name: "MafxAppTests",

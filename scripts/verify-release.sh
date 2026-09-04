@@ -32,5 +32,10 @@ if [ ! -d "${APP_DIR}/Contents/Resources/en.lproj" ] || [ ! -d "${APP_DIR}/Conte
     exit 1
 fi
 
+if [ ! -f "${APP_DIR}/Contents/Resources/THIRD_PARTY_NOTICES.md" ]; then
+    echo "エラー: THIRD_PARTY_NOTICES.md がアプリケーションバンドルに同梱されていません"
+    exit 1
+fi
+
 codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 echo "公開前チェックに合格しました: ${APP_DIR}"

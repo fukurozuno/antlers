@@ -364,6 +364,18 @@ final class SettingsStateTests: XCTestCase {
         XCTAssertEqual(state.previewPanePosition, .left)
     }
 
+    func testIncrementalSearchPriorityDefaultsToOffAndCanBeToggled() {
+        var state = SettingsState()
+
+        XCTAssertFalse(state.incrementalSearchPriority)
+        XCTAssertFalse(state.isToggleOn(.incrementalSearchPriority))
+
+        state.setToggle(.incrementalSearchPriority, isOn: true)
+
+        XCTAssertTrue(state.incrementalSearchPriority)
+        XCTAssertTrue(state.isToggleOn(.incrementalSearchPriority))
+    }
+
     func testAppLanguageDefaultsToSystem() {
         let state = SettingsState()
 
@@ -725,7 +737,7 @@ final class SettingsStateTests: XCTestCase {
         state.setChoice(.incrementalSearchMatchMode, to: .incrementalSearchMatchMode(.contains))
         XCTAssertEqual(state.incrementalSearchMatchMode, .contains)
 
-        state.focusItem(at: 3)
+        state.focusItem(at: 4)
         XCTAssertEqual(state.cycleFocusedChoice(), .incrementalSearchMatchMode)
         XCTAssertEqual(state.incrementalSearchMatchMode, .exact)
     }
@@ -870,5 +882,20 @@ final class SettingsStateTests: XCTestCase {
 
         XCTAssertEqual(theme.name, "Custom Theme")
         XCTAssertTrue(state.displayThemeSet.canEditSelectedTheme)
+    }
+
+    func testTreatZipAsDirectoryDefaultsToOnAndCanBeToggled() {
+        var state = SettingsState()
+
+        XCTAssertTrue(state.treatZipAsDirectory)
+
+        state.setToggle(.treatZipAsDirectory, isOn: false)
+        XCTAssertFalse(state.treatZipAsDirectory)
+        XCTAssertFalse(state.isToggleOn(.treatZipAsDirectory))
+
+        // Index 3 is treatZipAsDirectory in General tab
+        state.focusItem(at: 3)
+        XCTAssertEqual(state.toggleFocusedItem(), .treatZipAsDirectory)
+        XCTAssertTrue(state.treatZipAsDirectory)
     }
 }

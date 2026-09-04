@@ -1,6 +1,26 @@
 import AppKit
 import MafxCore
 
+enum IncrementalSearchInput {
+    static func text(from event: NSEvent) -> String? {
+        let commandModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
+        guard event.modifierFlags.intersection(commandModifiers).isEmpty,
+              let characters = event.characters,
+              characters.count == 1,
+              let scalar = characters.unicodeScalars.first,
+              scalar.value < 128,
+              scalar != " ",
+              scalar != "\t",
+              CharacterSet.alphanumerics.contains(scalar)
+                || CharacterSet.punctuationCharacters.contains(scalar)
+                || CharacterSet.symbols.contains(scalar) else {
+            return nil
+        }
+
+        return characters
+    }
+}
+
 extension KeyStroke {
     init?(event: NSEvent) {
         guard let key = Self.keyName(from: event) else {

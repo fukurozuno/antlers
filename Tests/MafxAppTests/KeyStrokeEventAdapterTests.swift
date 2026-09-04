@@ -40,6 +40,26 @@ final class KeyStrokeEventAdapterTests: XCTestCase {
         )
     }
 
+    func testIncrementalSearchInputAcceptsASCIICharactersAndShift() {
+        XCTAssertEqual(
+            IncrementalSearchInput.text(from: makeKeyEvent(characters: "A")),
+            "A"
+        )
+        XCTAssertEqual(
+            IncrementalSearchInput.text(from: makeKeyEvent(modifierFlags: [.shift], characters: "!")),
+            "!"
+        )
+    }
+
+    func testIncrementalSearchInputExcludesSpaceTabJapaneseAndCommandModifiers() {
+        XCTAssertNil(IncrementalSearchInput.text(from: makeKeyEvent(characters: " ")))
+        XCTAssertNil(IncrementalSearchInput.text(from: makeKeyEvent(characters: "\t")))
+        XCTAssertNil(IncrementalSearchInput.text(from: makeKeyEvent(characters: "あ")))
+        XCTAssertNil(IncrementalSearchInput.text(from: makeKeyEvent(modifierFlags: [.command], characters: "a")))
+        XCTAssertNil(IncrementalSearchInput.text(from: makeKeyEvent(modifierFlags: [.control], characters: "a")))
+        XCTAssertNil(IncrementalSearchInput.text(from: makeKeyEvent(modifierFlags: [.option], characters: "a")))
+    }
+
     private func makeKeyEvent(
         keyCode: UInt16 = 24,
         modifierFlags: NSEvent.ModifierFlags = [],

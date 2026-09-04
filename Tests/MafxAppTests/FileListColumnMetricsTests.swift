@@ -13,7 +13,7 @@ final class FileListColumnMetricsTests: XCTestCase {
 
         XCTAssertEqual(
             FileListColumnMetrics.modificationDateWidth(font: font),
-            ceil(max(stringWidth, fittingWidth)) + 16
+            ceil(max(stringWidth, fittingWidth)) + 20
         )
     }
 

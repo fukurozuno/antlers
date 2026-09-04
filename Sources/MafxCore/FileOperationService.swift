@@ -8,6 +8,7 @@ public enum FileOperationError: Error, Equatable {
     case destinationAlreadyExists(URL)
     case destinationInsideSource(source: URL, destination: URL)
     case failed(String)
+    case outsideScope(URL)
 }
 
 extension FileOperationError: LocalizedError {
@@ -27,6 +28,8 @@ extension FileOperationError: LocalizedError {
             return "操作先が操作元の配下です: \(source.lastPathComponent) -> \(destination.lastPathComponent)"
         case .failed(let message):
             return message
+        case .outsideScope(let url):
+            return FileSystemScopeError.outsideScope(url).localizedDescription
         }
     }
 }
@@ -157,9 +160,11 @@ public protocol FileOperationProviding {
 
 public final class FileOperationService: FileOperationProviding {
     private let fileManager: FileManager
+    private let scope: FileSystemScope
 
-    public init(fileManager: FileManager = .default) {
+    public init(fileManager: FileManager = .default, scope: FileSystemScope = .unrestricted) {
         self.fileManager = fileManager
+        self.scope = scope
     }
 
     public func createDirectory(named name: String, in parentDirectory: URL) throws -> URL {
@@ -167,6 +172,8 @@ public final class FileOperationService: FileOperationProviding {
         try validateSingleItemName(trimmedName)
 
         let directoryURL = parentDirectory.appendingPathComponent(trimmedName, isDirectory: true)
+        try validateScope(parentDirectory)
+        try validateScope(directoryURL)
         guard !fileManager.fileExists(atPath: directoryURL.path) else {
             throw FileOperationError.destinationAlreadyExists(directoryURL)
         }
@@ -188,8 +195,10 @@ public final class FileOperationService: FileOperationProviding {
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             throw FileOperationError.sourceDoesNotExist(sourceURL)
         }
+        try validateScope(sourceURL)
 
         let destinationURL = sourceURL.deletingLastPathComponent().appendingPathComponent(trimmedName)
+        try validateScope(destinationURL)
         if destinationURL.standardizedFileURL == sourceURL.standardizedFileURL {
             return sourceURL
         }
@@ -214,9 +223,12 @@ public final class FileOperationService: FileOperationProviding {
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             throw FileOperationError.sourceDoesNotExist(sourceURL)
         }
+        try validateScope(sourceURL)
 
         let destinationDirectory = sourceURL.deletingLastPathComponent()
         let destinationURL = destinationDirectory.appendingPathComponent(trimmedName)
+        try validateScope(destinationDirectory)
+        try validateScope(destinationURL)
         try validateCopyDestination(destinationURL, isNotInside: sourceURL)
 
         if fileManager.fileExists(atPath: destinationURL.path) {
@@ -237,6 +249,11 @@ public final class FileOperationService: FileOperationProviding {
         to destinationDirectory: URL,
         resolvingConflictWith conflictResolver: (FileCopyConflict) -> FileCopyConflictResolution
     ) throws -> FileCopyResult {
+        try validateScope(destinationDirectory)
+        for sourceURL in uniqueURLsPreservingOrder(sourceURLs) {
+            try validateScope(sourceURL)
+            try validateScope(destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent))
+        }
         try validateDestinationDirectory(destinationDirectory)
 
         var copiedCount = 0
@@ -324,6 +341,11 @@ public final class FileOperationService: FileOperationProviding {
         to destinationDirectory: URL,
         resolvingConflictWith conflictResolver: (FileMoveConflict) -> FileMoveConflictResolution
     ) throws -> FileMoveResult {
+        try validateScope(destinationDirectory)
+        for sourceURL in uniqueURLsPreservingOrder(sourceURLs) {
+            try validateScope(sourceURL)
+            try validateScope(destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent))
+        }
         try validateDestinationDirectory(destinationDirectory)
 
         var movedCount = 0
@@ -407,10 +429,17 @@ public final class FileOperationService: FileOperationProviding {
     }
 
     public func trashItems(at sourceURLs: [URL]) throws -> FileTrashResult {
+        let uniqueSourceURLs = uniqueURLsPreservingOrder(sourceURLs)
+        for sourceURL in uniqueSourceURLs { try validateScope(sourceURL) }
+        if let rootURL = scope.confinedRootURL {
+            let trashURL = rootURL.appendingPathComponent(".antlers-trash", isDirectory: true)
+            try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
+            return try moveToConfinedTrash(uniqueSourceURLs, trashURL: trashURL)
+        }
         var trashedCount = 0
         var itemResults: [FileOperationItemResult] = []
 
-        for sourceURL in uniqueURLsPreservingOrder(sourceURLs) {
+        for sourceURL in uniqueSourceURLs {
             guard fileManager.fileExists(atPath: sourceURL.path) else {
                 throw FileOperationError.sourceDoesNotExist(sourceURL)
             }
@@ -430,6 +459,30 @@ public final class FileOperationService: FileOperationProviding {
         }
 
         return FileTrashResult(trashedCount: trashedCount, itemResults: itemResults)
+    }
+
+    private func validateScope(_ url: URL) throws {
+        do { try scope.validate(url) }
+        catch let error as FileSystemScopeError { throw FileOperationError.outsideScope(errorURL(error)) }
+    }
+
+    private func errorURL(_ error: FileSystemScopeError) -> URL {
+        if case .outsideScope(let url) = error { return url }
+        return URL(fileURLWithPath: "/")
+    }
+
+    private func moveToConfinedTrash(_ urls: [URL], trashURL: URL) throws -> FileTrashResult {
+        var results: [FileOperationItemResult] = []
+        for sourceURL in urls {
+            guard fileManager.fileExists(atPath: sourceURL.path) else { throw FileOperationError.sourceDoesNotExist(sourceURL) }
+            var destinationURL = trashURL.appendingPathComponent(sourceURL.lastPathComponent)
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                destinationURL = trashURL.appendingPathComponent("\(UUID().uuidString)-\(sourceURL.lastPathComponent)")
+            }
+            try moveItem(at: sourceURL, to: destinationURL)
+            results.append(FileOperationItemResult(sourceURL: sourceURL, destinationURL: destinationURL, outcome: .trashed))
+        }
+        return FileTrashResult(trashedCount: results.count, itemResults: results)
     }
 
     private func validateSingleItemName(_ name: String) throws {

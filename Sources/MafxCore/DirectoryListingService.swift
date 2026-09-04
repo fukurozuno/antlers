@@ -12,12 +12,15 @@ public extension DirectoryListingProviding {
 
 public final class DirectoryListingService: DirectoryListingProviding {
     private let fileManager: FileManager
+    private let scope: FileSystemScope
 
-    public init(fileManager: FileManager = .default) {
+    public init(fileManager: FileManager = .default, scope: FileSystemScope = .unrestricted) {
         self.fileManager = fileManager
+        self.scope = scope
     }
 
     public func contents(of directory: URL, includingHiddenFiles: Bool = false) throws -> [FileItem] {
+        try scope.validate(directory)
         let urls = try fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [
@@ -31,6 +34,7 @@ public final class DirectoryListingService: DirectoryListingProviding {
         )
 
         return try urls
+            .filter { scope.contains($0) }
             .map { url in
                 let values = try url.resourceValues(
                     forKeys: [

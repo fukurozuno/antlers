@@ -6,20 +6,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let settingsRepository: SettingsRepository
     private let windowFrameRepository: WindowFrameRepository
     private var appSettings: AppSettings
+    private let storedAppSettings: AppSettings
+    private let launchOptions: LaunchOptions
     private let settingsWindowController: SettingsWindowController
+    private let fileSystemScope: FileSystemScope?
 
     override init() {
         let repository = UserDefaultsSettingsRepository()
         let loadedSettings = repository.load()
-        L10n.setAppLanguage(loadedSettings.appLanguage)
+        let launchOptions = LaunchOptions.parse(arguments: Array(ProcessInfo.processInfo.arguments.dropFirst()))
+        var runtimeSettings = loadedSettings
+        if let appLanguage = launchOptions.appLanguage {
+            runtimeSettings.appLanguage = appLanguage
+        }
+        if let themeID = launchOptions.themeID,
+           runtimeSettings.displayThemeSet.themes.contains(where: { $0.id == themeID }) {
+            runtimeSettings.displayThemeSet.selectTheme(id: themeID)
+        }
+        L10n.setAppLanguage(runtimeSettings.appLanguage)
         settingsRepository = repository
         windowFrameRepository = UserDefaultsWindowFrameRepository()
-        appSettings = loadedSettings
-        settingsWindowController = SettingsWindowController(settings: loadedSettings.settingsState)
+        appSettings = runtimeSettings
+        storedAppSettings = loadedSettings
+        self.launchOptions = launchOptions
+        fileSystemScope = Self.fileSystemScopeFromArguments()
+        settingsWindowController = SettingsWindowController(settings: runtimeSettings.settingsState)
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let fileSystemScope else {
+            let alert = NSAlert()
+            alert.messageText = L10n.string("alert.confinedRoot.invalid.title")
+            alert.informativeText = L10n.string("alert.confinedRoot.invalid.message")
+            alert.alertStyle = .critical
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
         configureMainMenu()
         NotificationCenter.default.addObserver(
             self,
@@ -60,13 +84,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let windowController = MainWindowController(
             settings: appSettings,
-            savedFrame: windowFrameRepository.load()
+            savedFrame: windowFrameRepository.load(),
+            fileSystemScope: fileSystemScope,
+            initialLeftPath: Self.relativeLaunchPath("--left-path", in: fileSystemScope),
+            initialRightPath: Self.relativeLaunchPath("--right-path", in: fileSystemScope)
         )
         self.windowController = windowController
         windowController.window?.delegate = self
 
         windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private static func fileSystemScopeFromArguments() -> FileSystemScope? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--confined-root"), arguments.indices.contains(index + 1) else {
+            return .some(.unrestricted)
+        }
+        let rootURL = URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
+        return FileSystemScope(confinedRootURL: rootURL)
+    }
+
+    private static func relativeLaunchPath(_ option: String, in scope: FileSystemScope) -> URL? {
+        guard let index = ProcessInfo.processInfo.arguments.firstIndex(of: option),
+              ProcessInfo.processInfo.arguments.indices.contains(index + 1),
+              let rootURL = scope.confinedRootURL else { return nil }
+        return scope.relativePath(ProcessInfo.processInfo.arguments[index + 1]) ?? rootURL
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -141,6 +184,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             appSettings.showsHiddenFiles = showsHiddenFiles
         }
 
+        if let incrementalSearchPriority = notification.userInfo?[SettingsNotificationKey.incrementalSearchPriority] as? Bool {
+            appSettings.incrementalSearchPriority = incrementalSearchPriority
+        }
+
         if let usesAlternatingRowBackgrounds = notification.userInfo?[SettingsNotificationKey.usesAlternatingRowBackgrounds] as? Bool {
             appSettings.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
         }
@@ -190,6 +237,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if let allowsExternalFileDrag = notification.userInfo?[SettingsNotificationKey.allowsExternalFileDrag] as? Bool {
             appSettings.allowsExternalFileDrag = allowsExternalFileDrag
+        }
+
+        if let treatZipAsDirectory = notification.userInfo?[SettingsNotificationKey.treatZipAsDirectory] as? Bool {
+            appSettings.treatZipAsDirectory = treatZipAsDirectory
         }
 
         if let fileOperationDetailLogLimit = notification.userInfo?[SettingsNotificationKey.fileOperationDetailLogLimit] as? Int {
@@ -246,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             appSettings.fileTypeColorScope = scope
         }
 
-        settingsRepository.save(appSettings)
+        settingsRepository.save(settingsForPersistence())
     }
 
     @objc private func jumpPathEntriesDidChange(_ notification: Notification) {
@@ -255,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         appSettings.jumpPathEntries = entries
-        settingsRepository.save(appSettings)
+        settingsRepository.save(settingsForPersistence())
     }
 
     @objc private func paneDirectoriesDidChange(_ notification: Notification) {
@@ -273,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
            let rightSortDescriptor = notification.userInfo?[SettingsNotificationKey.rightPaneSortDescriptor] as? FileSortDescriptor {
             appSettings.setPaneSortDescriptors(left: leftSortDescriptor, right: rightSortDescriptor)
         }
-        settingsRepository.save(appSettings)
+        settingsRepository.save(settingsForPersistence())
     }
 
     @objc private func filePatternHistoryDidChange(_ notification: Notification) {
@@ -282,7 +333,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         appSettings.filePatternHistory = history
-        settingsRepository.save(appSettings)
+        settingsRepository.save(settingsForPersistence())
+    }
+
+    private func settingsForPersistence() -> AppSettings {
+        var settings = appSettings
+        if launchOptions.appLanguage != nil {
+            settings.appLanguage = storedAppSettings.appLanguage
+        }
+        if launchOptions.themeID != nil {
+            settings.displayThemeSet = storedAppSettings.displayThemeSet
+        }
+        return settings
     }
 
     private func configureMainMenu() {
@@ -371,6 +433,7 @@ extension Notification.Name {
 enum SettingsNotificationKey {
     static let filePatternHistory = "filePatternHistory"
     static let showsHiddenFiles = "showsHiddenFiles"
+    static let incrementalSearchPriority = "incrementalSearchPriority"
     static let showsPreviewPane = "showsPreviewPane"
     static let previewPanePosition = "previewPanePosition"
     static let previewPaneWidthRatio = "previewPaneWidthRatio"
@@ -387,6 +450,7 @@ enum SettingsNotificationKey {
     static let confirmsBeforeTrash = "confirmsBeforeTrash"
     static let confirmsBeforeQuit = "confirmsBeforeQuit"
     static let allowsExternalFileDrag = "allowsExternalFileDrag"
+    static let treatZipAsDirectory = "treatZipAsDirectory"
     static let fileOperationDetailLogLimit = "fileOperationDetailLogLimit"
     static let fileListFontSize = "fileListFontSize"
     static let appLanguage = "appLanguage"

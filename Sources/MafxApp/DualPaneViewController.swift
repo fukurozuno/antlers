@@ -21,11 +21,13 @@ func makeFileNameInputField(currentName: String) -> NSTextField {
 }
 
 final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
-    private let listingService = DirectoryListingService()
+    private let listingService: DirectoryListingProviding
     private let driveListingService = DriveListingService()
     private let volumeEjectionService: VolumeEjecting = VolumeEjectionService()
     private let tagService = TagService()
-    private let fileOperationService = FileOperationService()
+    private let fileOperationService: FileOperationProviding
+    private let fileSystemScope: FileSystemScope
+    private let archiveService: ArchiveProviding = ArchiveService()
     private let fileInfoService = FileInfoService()
     private let pathCompletionService = PathCompletionService()
     private let fileSizeFormatter = FileSizeFormatter()
@@ -35,6 +37,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private var rightState: PaneState
     private var activePane: ActivePane = .left
     private var pendingKeySequence: PendingKeySequence?
+    private let operationMenuPanelController = OperationMenuPanelController()
+    private var operationMenuOverlay: OperationMenuOverlayView?
+    private var operationMenuKeymapResolver: KeymapResolver?
+    private var operationMenuRootEntries: [OperationMenuEntry] = []
+    private var operationMenuOpenedDirectlyInOpenWith = false
     private var movesCursorAfterMarking = true
     private var movesToCreatedFolder = true
     private var selectsPreviousDirectoryAfterMovingToParent = true
@@ -50,12 +57,14 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private var showsFileExtensionsSeparately = true
     private var showsMultiStrokeKeyCandidates = true
     private var returnKeyBehavior: ReturnKeyBehavior
+    private var treatZipAsDirectory = false
     private var showsPreviewPane = false
     private var previewPanePosition: PreviewPanePosition = .right
     private var isInPreviewMode = false
     private var previewPaneWidthRatio: CGFloat = 0.32
     private var persistedPreviewPaneWidthRatio: CGFloat = 0.32
     private var incrementalSearchMatchMode: IncrementalSearchMatchMode
+    private var incrementalSearchPriority: Bool
     private var keyBindingSet: KeyBindingSet
     private var keymapResolver: KeymapResolver
     private let previewKeymapResolver = PreviewKeymapResolver()
@@ -93,20 +102,26 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         displayThemeSet.selectedTheme.usesContentTransparency ? .clear : .windowBackgroundColor
     }
 
-    init(settings: AppSettings = AppSettings()) {
+    init(settings: AppSettings = AppSettings(), fileSystemScope: FileSystemScope = .unrestricted, initialLeftPath: URL? = nil, initialRightPath: URL? = nil) {
+        self.fileSystemScope = fileSystemScope
+        self.listingService = DirectoryListingService(scope: fileSystemScope)
+        self.fileOperationService = FileOperationService(scope: fileSystemScope)
+        let confinedInitialDirectory = fileSystemScope.confinedRootURL
         leftState = PaneState(
-            currentDirectory: settings.leftPaneDirectoryURL,
+            currentDirectory: initialLeftPath ?? confinedInitialDirectory ?? settings.leftPaneDirectoryURL,
             sortDescriptor: settings.leftPaneSortDescriptor,
             showsHiddenFiles: settings.showsHiddenFiles,
             incrementalSearchMatchMode: settings.incrementalSearchMatchMode,
-            navigationHistory: settings.leftPaneNavigationHistory
+            navigationHistory: settings.leftPaneNavigationHistory,
+            fileSystemScope: fileSystemScope
         )
         rightState = PaneState(
-            currentDirectory: settings.rightPaneDirectoryURL,
+            currentDirectory: initialRightPath ?? confinedInitialDirectory ?? settings.rightPaneDirectoryURL,
             sortDescriptor: settings.rightPaneSortDescriptor,
             showsHiddenFiles: settings.showsHiddenFiles,
             incrementalSearchMatchMode: settings.incrementalSearchMatchMode,
-            navigationHistory: settings.rightPaneNavigationHistory
+            navigationHistory: settings.rightPaneNavigationHistory,
+            fileSystemScope: fileSystemScope
         )
         movesCursorAfterMarking = settings.movesCursorAfterMarking
         movesToCreatedFolder = settings.movesToCreatedFolder
@@ -123,11 +138,13 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         showsFileExtensionsSeparately = settings.showsFileExtensionsSeparately
         showsMultiStrokeKeyCandidates = settings.showsMultiStrokeKeyCandidates
         returnKeyBehavior = settings.returnKeyBehavior
+        treatZipAsDirectory = settings.treatZipAsDirectory
         showsPreviewPane = settings.showsPreviewPane
         previewPanePosition = settings.previewPanePosition
         previewPaneWidthRatio = CGFloat(settings.previewPaneWidthRatio)
         persistedPreviewPaneWidthRatio = previewPaneWidthRatio
         incrementalSearchMatchMode = settings.incrementalSearchMatchMode
+        incrementalSearchPriority = settings.incrementalSearchPriority
         keyBindingSet = settings.keyBindingSet
         keymapResolver = KeymapResolver(keyBindingSet: settings.keyBindingSet)
         displayThemeSet = settings.displayThemeSet
@@ -231,6 +248,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        // ウィンドウ表示後に最終的なペイン幅が確定するため、列幅を再計算する。
+        // viewWillAppear だけでは NSTableView の bounds が確定前の場合があり、
+        // 後続のメニュー表示などを契機に日付列以降の余白が変化することがある。
+        view.layoutSubtreeIfNeeded()
+        applyFileListLayoutSynchronously()
         view.window?.makeFirstResponder(self)
     }
 
@@ -239,6 +261,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
+        if operationMenuOverlay != nil {
+            handleOperationMenuKey(event)
+            return
+        }
+
         if let stroke = KeyStroke(event: event),
            keyBindingSet.sequences(for: .togglePreviewPane).contains(where: { $0.strokes == [stroke] }) {
             handleMainPaneCommand(.togglePreviewPane)
@@ -271,6 +298,16 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             return
         }
 
+        if incrementalSearchPriority,
+           let text = IncrementalSearchInput.text(from: event) {
+            mutateActivePane { state in
+                state.beginIncrementalSearch()
+                state.appendIncrementalSearchText(text)
+            }
+            render()
+            return
+        }
+
         if let stroke = KeyStroke(event: event), stroke == KeyStroke(key: "Return") {
             handleReservedReturnKey()
             return
@@ -280,6 +317,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func handleReservedReturnKey() {
+        if activePaneState.isBrowsingArchive {
+            handleMainPaneCommand(.openSelectedDirectory)
+            return
+        }
         if activePaneState.selectedListItem?.isParentDirectoryItem == true {
             handleMainPaneCommand(.openSelectedDirectory)
             return
@@ -287,10 +328,16 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
         switch returnKeyBehavior {
         case .openSelectedDirectory:
-            handleMainPaneCommand(.openSelectedDirectory)
+            if treatZipAsDirectory && isSelectedZIPArchive(in: activePaneState) {
+                browseSelectedArchive()
+            } else {
+                handleMainPaneCommand(.openSelectedDirectory)
+            }
         case .previewFileOrOpenDirectory:
             if activePaneState.selectedItem?.isDirectory == true {
                 handleMainPaneCommand(.openSelectedDirectory)
+            } else if treatZipAsDirectory && isSelectedZIPArchive(in: activePaneState) {
+                browseSelectedArchive()
             } else {
                 beginActivePanePreview()
             }
@@ -364,6 +411,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func handleMainPaneCommand(_ commandID: CommandID) {
+        if activePaneState.isBrowsingArchive,
+           !archiveBrowsingAllows(commandID) {
+            return
+        }
         switch commandID {
         case .moveSelectionUp:
             mutateActivePane { $0.moveSelection(by: -1) }
@@ -392,6 +443,15 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         case .widenLeftPane:
             adjustPaneDivider(by: paneWidthRatioStep)
         case .openSelectedDirectory:
+            if activePaneState.isBrowsingArchive {
+                _ = mutateActivePane { $0.enterSelectedDirectory(using: listingService) }
+                render()
+                return
+            }
+            if treatZipAsDirectory && isSelectedZIPArchive(in: activePaneState) {
+                browseSelectedArchive()
+                return
+            }
             let didMove = mutateActivePane {
                 $0.enterSelectedDirectory(
                     selectingPreviousDirectory: selectsPreviousDirectoryAfterMovingToParent,
@@ -407,6 +467,8 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             openSelectedItem()
         case .openWithConfiguredApplication:
             openSelectedItemWithConfiguredApplication()
+        case .showOpenWithMenu:
+            showOperationMenu(openingOpenWith: true)
         case .previewSelectedFile:
             beginActivePanePreview()
         case .togglePreviewPane:
@@ -425,6 +487,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             isInPreviewMode = true
             render()
         case .moveToParentDirectory:
+            if activePaneState.isBrowsingArchive {
+                _ = mutateActivePane { $0.moveToParentDirectory(using: listingService) }
+                render()
+                return
+            }
             let didMove = mutateActivePane {
                 $0.moveToParentDirectory(
                     selectingPreviousDirectory: selectsPreviousDirectoryAfterMovingToParent,
@@ -493,12 +560,24 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             moveMarkedItemsToOppositePane()
         case .trashMarkedItems:
             trashMarkedItems()
+        case .copySelectedItem:
+            copySelectedItemToOppositePane()
+        case .moveSelectedItem:
+            moveSelectedItemToOppositePane()
+        case .trashSelectedItem:
+            trashSelectedItem()
         case .renameSelectedItem:
             promptAndRenameSelectedItem()
         case .copySelectedItemWithNewName:
             promptAndCopySelectedItemWithNewName()
+        case .browseSelectedArchive:
+            browseSelectedArchive()
+        case .extractSelectedArchive:
+            extractSelectedArchive()
+        case .createArchiveFromMarkedItems:
+            promptAndCreateArchiveFromMarkedItems()
         case .showContextMenu:
-            showContextMenu()
+            showOperationMenu()
         case .syncActivePaneToOpposite:
             syncPanePathToOppositeDirection(isReversed: false)
             render()
@@ -707,7 +786,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             let info = try fileInfoService.info(for: selectedItem)
             appendMessage(fileInfoMessage(for: info), in: activePane)
         } catch {
-            appendMessage(L10n.format("message.fileInfoFailed", error.localizedDescription), in: activePane)
+            appendMessage(L10n.format("message.fileInfoFailed", localizedErrorDescription(error)), in: activePane)
         }
         render()
     }
@@ -925,6 +1004,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             self.returnKeyBehavior = returnKeyBehavior
         }
 
+        if let treatZipAsDirectory = notification.userInfo?[SettingsNotificationKey.treatZipAsDirectory] as? Bool {
+            self.treatZipAsDirectory = treatZipAsDirectory
+        }
+
         if let showsPreviewPane = notification.userInfo?[SettingsNotificationKey.showsPreviewPane] as? Bool {
             self.showsPreviewPane = showsPreviewPane
             if !showsPreviewPane { isInPreviewMode = false }
@@ -946,6 +1029,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             self.incrementalSearchMatchMode = incrementalSearchMatchMode
             leftState.setIncrementalSearchMatchMode(incrementalSearchMatchMode)
             rightState.setIncrementalSearchMatchMode(incrementalSearchMatchMode)
+        }
+
+        if let incrementalSearchPriority = notification.userInfo?[SettingsNotificationKey.incrementalSearchPriority] as? Bool {
+            self.incrementalSearchPriority = incrementalSearchPriority
         }
 
         if let keyBindingSet = notification.userInfo?[SettingsNotificationKey.keyBindingSet] as? KeyBindingSet {
@@ -1036,6 +1123,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
     private func externalDragItems(for sourceItem: FileItem, in pane: ActivePane) -> [FileItem] {
         let state = paneState(pane)
+        guard !state.isBrowsingArchive else {
+            return []
+        }
         guard !sourceItem.isSpecialItem else {
             return []
         }
@@ -1146,6 +1236,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func syncPanePathToOppositeDirection(isReversed: Bool) {
+        guard !leftState.isBrowsingArchive, !rightState.isBrowsingArchive else {
+            appendMessage(L10n.string("message.archiveBrowsingBlocksOppositePaneOperation"), in: activePane)
+            render()
+            return
+        }
         let sourcePane = isReversed ? activePane : activePane.opposite
         let destinationPane = isReversed ? activePane.opposite : activePane
         let sourceDirectory = paneState(sourcePane).currentDirectory
@@ -1178,6 +1273,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func showContextMenu() {
+        guard !activePaneState.isBrowsingArchive else { return }
         guard activePaneState.selectedListItem != nil else {
             return
         }
@@ -1187,8 +1283,109 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         anchorView.popUpContextMenu(menu)
     }
 
+    private func showOperationMenu(openingOpenWith: Bool = false) {
+        guard !activePaneState.isBrowsingArchive else { return }
+        guard activePaneState.selectedListItem != nil else { return }
+        dismissOperationMenu()
+
+        let entries = makeOperationMenuEntries(for: activePaneState)
+        let overlay = OperationMenuOverlayView(
+            entries: entries,
+            keyBindingSet: keyBindingSet,
+            theme: displayThemeSet.selectedTheme
+        )
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.onEntryActivated = { [weak self] entry in
+            self?.activateOperationMenuEntry(entry)
+        }
+        overlay.onContentSizeChange = { [weak self, weak overlay] size in
+            guard let self, let overlay else { return }
+            self.operationMenuPanelController.present(
+                contentView: overlay,
+                size: size,
+                relativeTo: self.view.window
+            )
+        }
+        operationMenuOverlay = overlay
+        operationMenuRootEntries = entries
+        operationMenuKeymapResolver = KeymapResolver(keyBindingSet: keyBindingSet)
+        operationMenuOpenedDirectlyInOpenWith = openingOpenWith
+        if openingOpenWith,
+           let openWithEntry = entries.first(where: { $0.commandID == .showOpenWithMenu }) {
+            overlay.showChildEntries(openWithEntry.children)
+        }
+        operationMenuPanelController.present(
+            contentView: overlay,
+            size: overlay.preferredContentSize,
+            relativeTo: view.window
+        )
+        view.window?.makeFirstResponder(self)
+    }
+
+    private func dismissOperationMenu() {
+        operationMenuPanelController.dismiss()
+        operationMenuOverlay = nil
+        operationMenuKeymapResolver = nil
+        operationMenuRootEntries = []
+        operationMenuOpenedDirectlyInOpenWith = false
+        view.window?.makeFirstResponder(self)
+    }
+
+    private func handleOperationMenuKey(_ event: NSEvent) {
+        guard let overlay = operationMenuOverlay else { return }
+        if event.keyCode == AppKeyCode.escape {
+            if !operationMenuOpenedDirectlyInOpenWith, overlay.goBack() {
+                operationMenuKeymapResolver?.resetPendingStrokes()
+            } else {
+                dismissOperationMenu()
+            }
+            return
+        }
+        if event.keyCode == AppKeyCode.upArrow { overlay.moveSelection(by: -1); return }
+        if event.keyCode == AppKeyCode.downArrow { overlay.moveSelection(by: 1); return }
+        if event.keyCode == AppKeyCode.returnKey { overlay.activateSelection(); return }
+        guard let stroke = KeyStroke(event: event),
+              let resolver = operationMenuKeymapResolver else { return }
+        let commandIDs = Set(overlay.currentEntries.compactMap(\.commandID))
+        switch resolver.resolve(stroke, allowedCommandIDs: commandIDs) {
+        case .matched(let commandID):
+            guard let entry = overlay.entry(for: commandID) else { return }
+            activateOperationMenuEntry(entry)
+        case .awaitingNextStroke(let pendingSequence):
+            let candidates = resolver.candidates(for: pendingSequence, allowedCommandIDs: commandIDs)
+            let candidateEntries = candidates.compactMap { candidate -> OperationMenuEntry? in
+                guard let originalEntry = operationMenuRootEntries.first(where: { $0.commandID == candidate.commandID }) else {
+                    return nil
+                }
+                return OperationMenuEntry(
+                    title: "\(candidate.remainingDisplayText) — \(originalEntry.title)",
+                    commandID: candidate.commandID,
+                    isEnabled: originalEntry.isEnabled,
+                    action: originalEntry.action
+                )
+            }
+            if !candidateEntries.isEmpty {
+                overlay.showChildEntries(candidateEntries)
+            }
+        case .unmatched:
+            guard overlay.currentEntries.allSatisfy({ $0.commandID == nil }),
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                  let characters = event.charactersIgnoringModifiers,
+                  characters.count == 1 else {
+                return
+            }
+            _ = overlay.focusFirstEnabledEntry(startingWith: characters)
+        }
+    }
+
+    private func activateOperationMenuEntry(_ entry: OperationMenuEntry) {
+        dismissOperationMenu()
+        entry.action?()
+    }
+
     private func showContextMenu(at point: NSPoint, in pane: ActivePane) {
         guard activePane == pane,
+              !activePaneState.isBrowsingArchive,
               activePaneState.selectedListItem != nil else {
             return
         }
@@ -1202,17 +1399,77 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         makeContextMenu(for: activePaneState)
     }
 
+    private func makeOperationMenuEntries(for state: PaneState) -> [OperationMenuEntry] {
+        let hasSelectedItem = state.selectedItem != nil
+        let hasMarkedItems = !state.markedItems.isEmpty
+        let isParentDirectoryItem = state.selectedListItem?.isParentDirectoryItem == true
+        let canMarkSelectedItem = hasSelectedItem && !isParentDirectoryItem
+        let canRevealInFinder = fileSystemScope.confinedRootURL == nil && (hasSelectedItem || isParentDirectoryItem)
+        let canCopyPath = hasSelectedItem || isParentDirectoryItem
+        let canBrowseArchive = isSelectedZIPArchive(in: state)
+        let canUseOppositePane = !paneState(activePane.opposite).isBrowsingArchive
+        let openWithEntries: [OperationMenuEntry]
+        if fileSystemScope.confinedRootURL == nil, let selectedItem = state.selectedItem {
+            openWithEntries = NSWorkspace.shared.urlsForApplications(toOpen: selectedItem.url)
+                .sorted { applicationDisplayName(for: $0).localizedStandardCompare(applicationDisplayName(for: $1)) == .orderedAscending }
+                .map { applicationURL in
+                    OperationMenuEntry(
+                        title: applicationDisplayName(for: applicationURL),
+                        image: NSWorkspace.shared.icon(forFile: applicationURL.path)
+                    ) { [weak self] in
+                        guard let self, let item = self.activePaneState.selectedItem else { return }
+                        self.open(item, withApplicationAt: applicationURL, in: self.activePane)
+                    }
+                }
+                + [OperationMenuEntry(title: L10n.string("contextMenu.otherApplication")) { [weak self] in
+                    self?.chooseApplicationForSelectedContextMenuItem(NSMenuItem())
+                }]
+        } else {
+            openWithEntries = [OperationMenuEntry(title: L10n.string("contextMenu.noApplications"), isEnabled: false)]
+        }
+
+        return [
+            OperationMenuEntry(title: L10n.string("contextMenu.open"), commandID: .openSelectedItem, isEnabled: hasSelectedItem) { [weak self] in self?.openSelectedItem() },
+            OperationMenuEntry(title: L10n.string("contextMenu.openWith"), commandID: .showOpenWithMenu, isEnabled: hasSelectedItem, children: openWithEntries),
+            OperationMenuEntry(title: L10n.string("contextMenu.revealInFinder"), isEnabled: canRevealInFinder) { [weak self] in self?.revealSelectedContextMenuItemInFinder(NSMenuItem()) },
+            OperationMenuEntry(title: L10n.string("contextMenu.copyPath"), commandID: .copyFullPathsToClipboard, isEnabled: canCopyPath) { [weak self] in self?.copyPathContextMenuItemsToClipboard(NSMenuItem()) },
+            OperationMenuEntry(title: L10n.string("contextMenu.copySelectedItem"), commandID: .copySelectedItem, isEnabled: canMarkSelectedItem && canUseOppositePane) { [weak self] in self?.copySelectedItemToOppositePane() },
+            OperationMenuEntry(title: L10n.string("contextMenu.moveSelectedItem"), commandID: .moveSelectedItem, isEnabled: canMarkSelectedItem && canUseOppositePane) { [weak self] in self?.moveSelectedItemToOppositePane() },
+            OperationMenuEntry(title: L10n.string("contextMenu.trashSelectedItem"), commandID: .trashSelectedItem, isEnabled: canMarkSelectedItem) { [weak self] in self?.trashSelectedItem() },
+            OperationMenuEntry(title: L10n.string("contextMenu.toggleMark"), commandID: .toggleMark, isEnabled: canMarkSelectedItem) { [weak self] in self?.handleMainPaneCommand(.toggleMark) },
+            OperationMenuEntry(title: L10n.string("contextMenu.clearMarks"), commandID: .clearMarkedItems, isEnabled: hasMarkedItems) { [weak self] in self?.handleMainPaneCommand(.clearMarkedItems) },
+            OperationMenuEntry(title: L10n.string("contextMenu.invertFileMarks"), commandID: .invertMarkedFiles) { [weak self] in self?.handleMainPaneCommand(.invertMarkedFiles) },
+            OperationMenuEntry(title: L10n.string("contextMenu.invertFileAndDirectoryMarks"), commandID: .invertMarkedFilesIncludingDirectories) { [weak self] in self?.handleMainPaneCommand(.invertMarkedFilesIncludingDirectories) },
+            OperationMenuEntry(title: L10n.string("contextMenu.copy"), commandID: .copyMarkedItems, isEnabled: hasMarkedItems && canUseOppositePane) { [weak self] in self?.copyMarkedItemsToOppositePane() },
+            OperationMenuEntry(title: L10n.string("contextMenu.move"), commandID: .moveMarkedItems, isEnabled: hasMarkedItems && canUseOppositePane) { [weak self] in self?.moveMarkedItemsToOppositePane() },
+            OperationMenuEntry(title: L10n.string("contextMenu.trash"), commandID: .trashMarkedItems, isEnabled: hasMarkedItems) { [weak self] in self?.trashMarkedItems() },
+            OperationMenuEntry(title: L10n.string("contextMenu.rename"), commandID: .renameSelectedItem, isEnabled: hasSelectedItem) { [weak self] in self?.promptAndRenameSelectedItem() },
+            OperationMenuEntry(title: L10n.string("contextMenu.copyWithNewName"), commandID: .copySelectedItemWithNewName, isEnabled: hasSelectedItem) { [weak self] in self?.promptAndCopySelectedItemWithNewName() },
+            OperationMenuEntry(title: L10n.string("contextMenu.browseArchive"), commandID: .browseSelectedArchive, isEnabled: canBrowseArchive) { [weak self] in self?.browseSelectedArchive() },
+            OperationMenuEntry(title: L10n.string("contextMenu.extractArchive"), commandID: .extractSelectedArchive, isEnabled: canBrowseArchive && canUseOppositePane) { [weak self] in self?.extractSelectedArchive() },
+            OperationMenuEntry(title: L10n.string("contextMenu.createArchive"), commandID: .createArchiveFromMarkedItems, isEnabled: hasMarkedItems && canUseOppositePane) { [weak self] in self?.promptAndCreateArchiveFromMarkedItems() },
+            OperationMenuEntry(title: L10n.string("contextMenu.createFolder"), commandID: .createFolder) { [weak self] in self?.promptAndCreateFolder() }
+        ]
+    }
+
     func makeContextMenu(for state: PaneState) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let hasSelectedItem = state.selectedItem != nil
         let hasMarkedItems = !state.markedItems.isEmpty
         let hasSelectedParentDirectoryItem = state.selectedListItem?.isParentDirectoryItem == true
-        let hasOperationTargets = !hasSelectedParentDirectoryItem && (hasSelectedItem || hasMarkedItems)
+        let canMarkSelectedItem = hasSelectedItem && !hasSelectedParentDirectoryItem
         let canRevealInFinder = hasSelectedItem || hasSelectedParentDirectoryItem
-        let canCopyPath = hasOperationTargets || hasSelectedParentDirectoryItem
+        let canCopyPath = hasSelectedItem || hasSelectedParentDirectoryItem
+        let canUseOppositePane = !paneState(activePane.opposite).isBrowsingArchive
 
-        addMenuItem(L10n.string("contextMenu.open"), action: #selector(openSelectedContextMenuItem(_:)), to: menu, isEnabled: hasSelectedItem)
+        addMenuItem(
+            L10n.string("contextMenu.open"),
+            action: #selector(openSelectedContextMenuItem(_:)),
+            commandID: .openSelectedItem,
+            to: menu,
+            isEnabled: hasSelectedItem
+        )
         addOpenWithMenu(to: menu, for: state, isEnabled: hasSelectedItem)
         addMenuItem(
             L10n.string("contextMenu.revealInFinder"),
@@ -1223,16 +1480,123 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         addMenuItem(
             L10n.string("contextMenu.copyPath"),
             action: #selector(copyPathContextMenuItemsToClipboard(_:)),
+            commandID: .copyFullPathsToClipboard,
             to: menu,
             isEnabled: canCopyPath
         )
         menu.addItem(.separator())
-        addMenuItem(L10n.string("contextMenu.copy"), action: #selector(copyContextMenuItems(_:)), to: menu, isEnabled: hasOperationTargets)
-        addMenuItem(L10n.string("contextMenu.move"), action: #selector(moveContextMenuItems(_:)), to: menu, isEnabled: hasOperationTargets)
-        addMenuItem(L10n.string("contextMenu.rename"), action: #selector(renameContextMenuItem(_:)), to: menu, isEnabled: hasSelectedItem)
-        addMenuItem(L10n.string("contextMenu.copyWithNewName"), action: #selector(copyContextMenuItemWithNewName(_:)), to: menu, isEnabled: hasSelectedItem)
+        addMenuItem(
+            L10n.string("contextMenu.copySelectedItem"),
+            action: #selector(copySelectedContextMenuItem(_:)),
+            commandID: .copySelectedItem,
+            to: menu,
+            isEnabled: canMarkSelectedItem && canUseOppositePane
+        )
+        addMenuItem(
+            L10n.string("contextMenu.moveSelectedItem"),
+            action: #selector(moveSelectedContextMenuItem(_:)),
+            commandID: .moveSelectedItem,
+            to: menu,
+            isEnabled: canMarkSelectedItem && canUseOppositePane
+        )
+        addMenuItem(
+            L10n.string("contextMenu.trashSelectedItem"),
+            action: #selector(trashSelectedContextMenuItem(_:)),
+            commandID: .trashSelectedItem,
+            to: menu,
+            isEnabled: canMarkSelectedItem
+        )
         menu.addItem(.separator())
-        addMenuItem(L10n.string("contextMenu.createFolder"), action: #selector(createFolderFromContextMenu(_:)), to: menu)
+        addMenuItem(
+            L10n.string("contextMenu.toggleMark"),
+            action: #selector(toggleMarkContextMenuItem(_:)),
+            commandID: .toggleMark,
+            to: menu,
+            isEnabled: canMarkSelectedItem
+        )
+        addMenuItem(
+            L10n.string("contextMenu.clearMarks"),
+            action: #selector(clearMarksContextMenuItem(_:)),
+            commandID: .clearMarkedItems,
+            to: menu,
+            isEnabled: hasMarkedItems
+        )
+        addMenuItem(
+            L10n.string("contextMenu.invertFileMarks"),
+            action: #selector(invertFileMarksContextMenuItem(_:)),
+            commandID: .invertMarkedFiles,
+            to: menu
+        )
+        addMenuItem(
+            L10n.string("contextMenu.invertFileAndDirectoryMarks"),
+            action: #selector(invertFileAndDirectoryMarksContextMenuItem(_:)),
+            commandID: .invertMarkedFilesIncludingDirectories,
+            to: menu
+        )
+        menu.addItem(.separator())
+        addMenuItem(
+            L10n.string("contextMenu.copy"),
+            action: #selector(copyContextMenuItems(_:)),
+            commandID: .copyMarkedItems,
+            to: menu,
+            isEnabled: hasMarkedItems && canUseOppositePane
+        )
+        addMenuItem(
+            L10n.string("contextMenu.move"),
+            action: #selector(moveContextMenuItems(_:)),
+            commandID: .moveMarkedItems,
+            to: menu,
+            isEnabled: hasMarkedItems && canUseOppositePane
+        )
+        addMenuItem(
+            L10n.string("contextMenu.trash"),
+            action: #selector(trashContextMenuItems(_:)),
+            commandID: .trashMarkedItems,
+            to: menu,
+            isEnabled: hasMarkedItems
+        )
+        addMenuItem(
+            L10n.string("contextMenu.rename"),
+            action: #selector(renameContextMenuItem(_:)),
+            commandID: .renameSelectedItem,
+            to: menu,
+            isEnabled: hasSelectedItem
+        )
+        addMenuItem(
+            L10n.string("contextMenu.copyWithNewName"),
+            action: #selector(copyContextMenuItemWithNewName(_:)),
+            commandID: .copySelectedItemWithNewName,
+            to: menu,
+            isEnabled: hasSelectedItem
+        )
+        addMenuItem(
+            L10n.string("contextMenu.browseArchive"),
+            action: #selector(browseSelectedArchiveFromContextMenu(_:)),
+            commandID: .browseSelectedArchive,
+            to: menu,
+            isEnabled: isSelectedZIPArchive(in: state)
+        )
+        addMenuItem(
+            L10n.string("contextMenu.extractArchive"),
+            action: #selector(extractSelectedArchiveFromContextMenu(_:)),
+            commandID: .extractSelectedArchive,
+            to: menu,
+            isEnabled: isSelectedZIPArchive(in: state) && canUseOppositePane
+        )
+        addMenuItem(
+            L10n.string("contextMenu.createArchive"),
+            action: #selector(createArchiveFromContextMenu(_:)),
+            commandID: .createArchiveFromMarkedItems,
+            to: menu,
+            isEnabled: hasMarkedItems && canUseOppositePane
+        )
+        menu.addItem(.separator())
+        addMenuItem(
+            L10n.string("contextMenu.createFolder"),
+            action: #selector(createFolderFromContextMenu(_:)),
+            commandID: .createFolder,
+            to: menu
+        )
 
         return menu
     }
@@ -1240,17 +1604,28 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private func addMenuItem(
         _ title: String,
         action: Selector,
+        commandID: CommandID? = nil,
         to menu: NSMenu,
         isEnabled: Bool = true
     ) {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        let item = NSMenuItem(
+            title: title,
+            action: action,
+            keyEquivalent: ""
+        )
         item.target = self
         item.isEnabled = isEnabled
+        item.representedObject = commandID
         menu.addItem(item)
     }
 
     private func addOpenWithMenu(to menu: NSMenu, for state: PaneState, isEnabled: Bool) {
         let item = NSMenuItem(title: L10n.string("contextMenu.openWith"), action: nil, keyEquivalent: "")
+        guard fileSystemScope.confinedRootURL == nil else {
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
         item.isEnabled = isEnabled
 
         let submenu = NSMenu()
@@ -1333,7 +1708,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
 
         if selectedItem.isDirectory {
             render()
-        } else {
+        } else if fileSystemScope.confinedRootURL == nil {
             announceOpening(selectedItem, in: activePane)
             if !NSWorkspace.shared.open(selectedItem.url) {
                 appendMessage(L10n.format("message.openFailed", selectedItem.name), in: activePane)
@@ -1343,6 +1718,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func openSelectedItemWithConfiguredApplication() {
+        guard fileSystemScope.confinedRootURL == nil else { return }
         guard let selectedItem = activePaneState.selectedItem, !selectedItem.isDirectory else {
             return
         }
@@ -1421,6 +1797,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     private func open(_ item: FileItem, withApplicationAt applicationURL: URL, in pane: ActivePane) {
+        guard fileSystemScope.confinedRootURL == nil else { return }
         let configuration = NSWorkspace.OpenConfiguration()
         announceOpening(item, in: pane)
         NSWorkspace.shared.open([item.url], withApplicationAt: applicationURL, configuration: configuration) { [weak self] _, error in
@@ -1430,7 +1807,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 }
 
                 if let error {
-                    self.appendMessage(L10n.format("message.openWithFailed", error.localizedDescription), in: pane)
+                    self.appendMessage(L10n.format("message.openWithFailed", localizedErrorDescription(error)), in: pane)
                     self.render()
                 }
             }
@@ -1438,6 +1815,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     @objc private func revealSelectedContextMenuItemInFinder(_ sender: NSMenuItem) {
+        guard fileSystemScope.confinedRootURL == nil else { return }
         guard let revealTarget = contextMenuRevealTarget() else {
             return
         }
@@ -1462,11 +1840,55 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     }
 
     @objc private func copyContextMenuItems(_ sender: NSMenuItem) {
-        copyContextMenuItemsToOppositePane()
+        copyMarkedItemsToOppositePane()
+    }
+
+    @objc private func copySelectedContextMenuItem(_ sender: NSMenuItem) {
+        copySelectedItemToOppositePane()
     }
 
     @objc private func moveContextMenuItems(_ sender: NSMenuItem) {
-        moveContextMenuItemsToOppositePane()
+        moveMarkedItemsToOppositePane()
+    }
+
+    @objc private func moveSelectedContextMenuItem(_ sender: NSMenuItem) {
+        moveSelectedItemToOppositePane()
+    }
+
+    @objc private func trashContextMenuItems(_ sender: NSMenuItem) {
+        trashMarkedItems()
+    }
+
+    @objc private func trashSelectedContextMenuItem(_ sender: NSMenuItem) {
+        trashSelectedItem()
+    }
+
+    @objc private func browseSelectedArchiveFromContextMenu(_ sender: NSMenuItem) {
+        browseSelectedArchive()
+    }
+
+    @objc private func extractSelectedArchiveFromContextMenu(_ sender: NSMenuItem) {
+        extractSelectedArchive()
+    }
+
+    @objc private func createArchiveFromContextMenu(_ sender: NSMenuItem) {
+        promptAndCreateArchiveFromMarkedItems()
+    }
+
+    @objc private func toggleMarkContextMenuItem(_ sender: NSMenuItem) {
+        handleMainPaneCommand(.toggleMark)
+    }
+
+    @objc private func clearMarksContextMenuItem(_ sender: NSMenuItem) {
+        handleMainPaneCommand(.clearMarkedItems)
+    }
+
+    @objc private func invertFileMarksContextMenuItem(_ sender: NSMenuItem) {
+        handleMainPaneCommand(.invertMarkedFiles)
+    }
+
+    @objc private func invertFileAndDirectoryMarksContextMenuItem(_ sender: NSMenuItem) {
+        handleMainPaneCommand(.invertMarkedFilesIncludingDirectories)
     }
 
     @objc private func renameContextMenuItem(_ sender: NSMenuItem) {
@@ -1610,7 +2032,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 appendMessage(L10n.format("message.folderCreated", createdDirectory.lastPathComponent), in: activePane)
             }
         } catch {
-            appendMessage(L10n.format("message.createFolderFailed", error.localizedDescription), in: activePane)
+            appendMessage(L10n.format("message.createFolderFailed", localizedErrorDescription(error)), in: activePane)
         }
 
         render()
@@ -1700,6 +2122,131 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         view.window?.makeFirstResponder(self)
     }
 
+    private func isSelectedZIPArchive(in state: PaneState) -> Bool {
+        guard let item = state.selectedItem, !item.isDirectory else { return false }
+        return item.fileExtension.caseInsensitiveCompare("zip") == .orderedSame
+    }
+
+    private func browseSelectedArchive() {
+        guard let archiveItem = activePaneState.selectedItem, isSelectedZIPArchive(in: activePaneState) else {
+            appendMessage(L10n.string("message.noArchiveTarget"), in: activePane)
+            render()
+            return
+        }
+        do {
+            let entries = try archiveService.entries(in: archiveItem.url)
+            mutateActivePane { $0.beginArchiveBrowsing(archiveURL: archiveItem.url, entries: entries) }
+            appendMessage(L10n.format("message.archiveBrowsing", archiveItem.name), in: activePane)
+            render()
+        } catch {
+            appendMessage(L10n.format("message.archiveBrowseFailed", localizedErrorDescription(error)), in: activePane)
+            render()
+        }
+    }
+
+    private func archiveBrowsingAllows(_ commandID: CommandID) -> Bool {
+        switch commandID {
+        case .moveSelectionUp, .moveSelectionDown, .moveSelectionPageUp, .moveSelectionPageDown,
+             .openSelectedDirectory, .moveToParentDirectory, .switchActivePane,
+             .activateLeftPane, .activateRightPane, .widenLeftPane, .narrowLeftPane,
+             .enlargeMessageWindow, .shrinkMessageWindow, .sortBySize, .sortByExtension,
+             .sortByName, .sortByModificationDate, .togglePreviewPane, .openSettings,
+             .quitApplication, .increaseFileListFontSize, .decreaseFileListFontSize,
+             .resetFileListFontSize:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func extractSelectedArchive() {
+        guard let archiveItem = activePaneState.selectedItem, isSelectedZIPArchive(in: activePaneState) else {
+            appendMessage(L10n.string("message.noArchiveTarget"), in: activePane)
+            render()
+            return
+        }
+        guard !paneState(activePane.opposite).isBrowsingArchive else {
+            appendMessage(L10n.string("message.archiveBrowsingBlocksOppositePaneOperation"), in: activePane)
+            render()
+            return
+        }
+        let destinationPane = activePane.opposite
+        let destinationDirectory = paneState(destinationPane).currentDirectory
+        let folderName = (archiveItem.name as NSString).deletingPathExtension
+        let destinationURL = destinationDirectory.appendingPathComponent(folderName, isDirectory: true)
+        let alert = NSAlert()
+        alert.messageText = L10n.string("alert.extractArchive.title")
+        alert.informativeText = L10n.format("alert.extractArchive.message", archiveItem.name, destinationURL.path)
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L10n.string("alert.extractArchive.extract"))
+        alert.addButton(withTitle: L10n.string("settings.button.cancel"))
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            let result = try archiveService.extractZIP(at: archiveItem.url, to: destinationURL)
+            mutatePane(destinationPane) { $0.loadCurrentDirectory(using: listingService) }
+            appendMessage(L10n.format("message.archiveExtracted", archiveItem.name, result.extractedItemCount, destinationURL.path), in: activePane)
+        } catch {
+            appendMessage(L10n.format("message.archiveExtractFailed", localizedErrorDescription(error)), in: activePane)
+        }
+        view.window?.makeFirstResponder(self)
+        render()
+    }
+
+    private func promptAndCreateArchiveFromMarkedItems() {
+        let sources = activePaneState.markedItems.map(\.url)
+        guard !sources.isEmpty else {
+            appendMessage(L10n.string("message.noMarkedArchiveTargets"), in: activePane)
+            render()
+            return
+        }
+        guard !paneState(activePane.opposite).isBrowsingArchive else {
+            appendMessage(L10n.string("message.archiveBrowsingBlocksOppositePaneOperation"), in: activePane)
+            render()
+            return
+        }
+        let destinationDirectory = paneState(activePane.opposite).currentDirectory
+        let destinationPane = activePane.opposite
+        let alert = NSAlert()
+        alert.messageText = L10n.string("alert.createArchive.title")
+        alert.informativeText = L10n.format("alert.createArchive.message", sources.count, destinationDirectory.path)
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: L10n.string("alert.createArchive.create"))
+        alert.addButton(withTitle: L10n.string("settings.button.cancel"))
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        let defaultDestination: URL
+        do {
+            defaultDestination = try archiveService.suggestedZIPDestination(
+                for: sources,
+                in: destinationDirectory
+            )
+        } catch {
+            appendMessage(L10n.format("message.archiveCreateFailed", localizedErrorDescription(error)), in: activePane)
+            render()
+            return
+        }
+        let inputField = makeFileNameInputField(currentName: defaultDestination.lastPathComponent)
+        alert.accessoryView = inputField
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        var name = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else {
+            appendMessage(L10n.string("message.archiveInvalidName"), in: activePane)
+            render()
+            return
+        }
+        if (name as NSString).pathExtension.caseInsensitiveCompare("zip") != .orderedSame { name += ".zip" }
+        let destinationURL = destinationDirectory.appendingPathComponent(name)
+        do {
+            try archiveService.createZIP(from: sources, to: destinationURL)
+            mutatePane(destinationPane) { $0.loadCurrentDirectory(using: listingService) }
+            appendMessage(L10n.format("message.archiveCreated", destinationURL.lastPathComponent), in: activePane)
+        } catch {
+            appendMessage(L10n.format("message.archiveCreateFailed", localizedErrorDescription(error)), in: activePane)
+        }
+        view.window?.makeFirstResponder(self)
+        render()
+    }
+
     private func promptForRenameName(currentName: String) -> String? {
         let alert = NSAlert()
         alert.messageText = L10n.string("alert.rename.title")
@@ -1762,10 +2309,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 let renamedURL = try renameItem(item, to: newName, replacingExisting: true)
                 appendMessage(L10n.format("message.renamedItem", item.name, renamedURL.lastPathComponent), in: activePane)
             } catch {
-                appendMessage(L10n.format("message.renameFailed", error.localizedDescription), in: activePane)
+                appendMessage(L10n.format("message.renameFailed", localizedErrorDescription(error)), in: activePane)
             }
         } catch {
-            appendMessage(L10n.format("message.renameFailed", error.localizedDescription), in: activePane)
+            appendMessage(L10n.format("message.renameFailed", localizedErrorDescription(error)), in: activePane)
         }
 
         render()
@@ -1792,10 +2339,10 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 let copiedURL = try copyItem(item, to: newName, replacingExisting: true)
                 appendMessage(L10n.format("message.copiedItemWithNewName", item.name, copiedURL.lastPathComponent), in: activePane)
             } catch {
-                appendMessage(L10n.format("message.copyWithNewNameFailed", error.localizedDescription), in: activePane)
+                appendMessage(L10n.format("message.copyWithNewNameFailed", localizedErrorDescription(error)), in: activePane)
             }
         } catch {
-            appendMessage(L10n.format("message.copyWithNewNameFailed", error.localizedDescription), in: activePane)
+            appendMessage(L10n.format("message.copyWithNewNameFailed", localizedErrorDescription(error)), in: activePane)
         }
 
         render()
@@ -1855,14 +2402,20 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         copyItemsToOppositePane(sourceURLs: paneState(activePane).markedItems.map(\.url), emptyMessage: L10n.string("message.noMarkedCopyTargets"))
     }
 
-    private func copyContextMenuItemsToOppositePane() {
-        copyItemsToOppositePane(sourceURLs: contextMenuOperationURLs(), emptyMessage: L10n.string("message.noCopyTargets"))
+    private func copySelectedItemToOppositePane() {
+        copyItemsToOppositePane(sourceURLs: selectedContextMenuItemURLs(), emptyMessage: L10n.string("message.noCopyTargets"))
     }
 
     private func copyItemsToOppositePane(sourceURLs: [URL], emptyMessage: String) {
         let sourcePane = activePane
         let destinationPane = activePane.opposite
         let destinationDirectory = paneState(destinationPane).currentDirectory
+
+        guard !paneState(destinationPane).isBrowsingArchive else {
+            appendMessage(L10n.string("message.archiveBrowsingBlocksOppositePaneOperation"), in: sourcePane)
+            render()
+            return
+        }
 
         guard !sourceURLs.isEmpty else {
             appendMessage(emptyMessage, in: sourcePane)
@@ -1882,6 +2435,28 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             render()
             return
         }
+
+        setTransientOperationMessage(L10n.string("message.copying"), in: sourcePane)
+        render()
+        displayOperationStatusImmediately()
+
+        DispatchQueue.main.async { [weak self] in
+            self?.performCopyItemsToOppositePane(
+                sourceURLs: sourceURLs,
+                sourcePane: sourcePane,
+                destinationPane: destinationPane,
+                destinationDirectory: destinationDirectory
+            )
+        }
+    }
+
+    private func performCopyItemsToOppositePane(
+        sourceURLs: [URL],
+        sourcePane: ActivePane,
+        destinationPane: ActivePane,
+        destinationDirectory: URL
+    ) {
+        defer { clearTransientOperationMessage() }
 
         var repeatedResolution: FileCopyConflictResolution?
 
@@ -1911,7 +2486,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             }
             appendMessages(copyResultMessages(result, destinationDirectory: destinationDirectory), in: sourcePane)
         } catch {
-            appendMessage(L10n.format("message.copyFailed", error.localizedDescription), in: sourcePane)
+            appendMessage(L10n.format("message.copyFailed", localizedErrorDescription(error)), in: sourcePane)
         }
 
         view.window?.makeFirstResponder(self)
@@ -1991,16 +2566,27 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         moveItemsToOppositePane(sourceURLs: paneState(activePane).markedItems.map(\.url), emptyMessage: L10n.string("message.noMarkedMoveTargets"))
     }
 
-    private func moveContextMenuItemsToOppositePane() {
-        moveItemsToOppositePane(sourceURLs: contextMenuOperationURLs(), emptyMessage: L10n.string("message.noMoveTargets"))
+    private func moveSelectedItemToOppositePane() {
+        moveItemsToOppositePane(sourceURLs: selectedContextMenuItemURLs(), emptyMessage: L10n.string("message.noMoveTargets"))
     }
 
     private func trashMarkedItems() {
+        trashItems(
+            paneState(activePane).markedItems,
+            emptyMessage: L10n.string("message.noMarkedTrashTargets")
+        )
+    }
+
+    private func trashSelectedItem() {
+        let targets = activePaneState.selectedItem.map { [$0] } ?? []
+        trashItems(targets, emptyMessage: L10n.string("message.noTrashTargets"))
+    }
+
+    private func trashItems(_ targets: [FileItem], emptyMessage: String) {
         let sourcePane = activePane
-        let targets = paneState(sourcePane).markedItems
 
         guard !targets.isEmpty else {
-            appendMessage(L10n.string("message.noMarkedTrashTargets"), in: sourcePane)
+            appendMessage(emptyMessage, in: sourcePane)
             render()
             return
         }
@@ -2011,6 +2597,18 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             render()
             return
         }
+
+        setTransientOperationMessage(L10n.string("message.trashing"), in: sourcePane)
+        render()
+        displayOperationStatusImmediately()
+
+        DispatchQueue.main.async { [weak self] in
+            self?.performTrashItems(targets, sourcePane: sourcePane)
+        }
+    }
+
+    private func performTrashItems(_ targets: [FileItem], sourcePane: ActivePane) {
+        defer { clearTransientOperationMessage() }
 
         do {
             let result = try fileOperationService.trashItems(at: targets.map(\.url))
@@ -2026,7 +2624,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             // 複数項目の処理中に失敗しても、それまでにゴミ箱へ移動済みの
             // 項目の古いマークを残さないよう、一覧とマーク状態を再同期する。
             mutatePane(sourcePane) { $0.loadCurrentDirectory(using: listingService) }
-            appendMessage(L10n.format("message.trashFailed", error.localizedDescription), in: sourcePane)
+            appendMessage(L10n.format("message.trashFailed", localizedErrorDescription(error)), in: sourcePane)
         }
 
         view.window?.makeFirstResponder(self)
@@ -2071,6 +2669,12 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         let destinationPane = activePane.opposite
         let destinationDirectory = paneState(destinationPane).currentDirectory
 
+        guard !paneState(destinationPane).isBrowsingArchive else {
+            appendMessage(L10n.string("message.archiveBrowsingBlocksOppositePaneOperation"), in: sourcePane)
+            render()
+            return
+        }
+
         guard !sourceURLs.isEmpty else {
             appendMessage(emptyMessage, in: sourcePane)
             render()
@@ -2089,6 +2693,28 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             render()
             return
         }
+
+        setTransientOperationMessage(L10n.string("message.moving"), in: sourcePane)
+        render()
+        displayOperationStatusImmediately()
+
+        DispatchQueue.main.async { [weak self] in
+            self?.performMoveItemsToOppositePane(
+                sourceURLs: sourceURLs,
+                sourcePane: sourcePane,
+                destinationPane: destinationPane,
+                destinationDirectory: destinationDirectory
+            )
+        }
+    }
+
+    private func performMoveItemsToOppositePane(
+        sourceURLs: [URL],
+        sourcePane: ActivePane,
+        destinationPane: ActivePane,
+        destinationDirectory: URL
+    ) {
+        defer { clearTransientOperationMessage() }
 
         var repeatedResolution: FileMoveConflictResolution?
 
@@ -2125,19 +2751,14 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             }
             appendMessages(moveResultMessages(result, destinationDirectory: destinationDirectory), in: sourcePane)
         } catch {
-            appendMessage(L10n.format("message.moveFailed", error.localizedDescription), in: sourcePane)
+            appendMessage(L10n.format("message.moveFailed", localizedErrorDescription(error)), in: sourcePane)
         }
 
         view.window?.makeFirstResponder(self)
         render()
     }
 
-    private func contextMenuOperationURLs() -> [URL] {
-        let markedURLs = paneState(activePane).markedItems.map(\.url)
-        if !markedURLs.isEmpty {
-            return markedURLs
-        }
-
+    private func selectedContextMenuItemURLs() -> [URL] {
         return activePaneState.selectedItem.map { [$0.url] } ?? []
     }
 
@@ -2635,6 +3256,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         closeJumpPathList()
 
         let directory = URL(fileURLWithPath: entry.path, isDirectory: true)
+        guard fileSystemScope.contains(directory) else { return }
         mutateActivePane { $0.moveToDirectory(directory, using: listingService) }
         appendMessage(pathChangedMessage(directory.path), in: activePane)
         postPaneDirectoriesDidChange()
@@ -2703,6 +3325,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private func moveActivePane(to volume: DriveVolume) {
         closeDriveList()
 
+        guard fileSystemScope.contains(volume.url) else { return }
         mutateActivePane { $0.moveToDirectory(volume.url, using: listingService) }
         appendMessage(L10n.format("message.locationChanged", volume.displayName), in: activePane)
         postPaneDirectoriesDidChange()
@@ -2733,6 +3356,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         rightState.setPaneWidthRatio(1.0 - leftState.paneWidthRatio)
         didApplyInitialPaneWidth = true
         applyPaneWidthRatio()
+        requestFileListLayoutApplication(force: true)
     }
 
     private func updatePreviewPaneArrangement() {
@@ -2899,6 +3523,28 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         appendMessageLine("\(pane.messagePrefix): \(message)")
     }
 
+    private func setTransientOperationMessage(_ message: String, in pane: ActivePane) {
+        let formattedMessage = "\(pane.messagePrefix): \(message)"
+        leftState.setTransientOperationMessage(formattedMessage)
+        rightState.setTransientOperationMessage(formattedMessage)
+    }
+
+    private func displayOperationStatusImmediately() {
+        guard let window = view.window else {
+            return
+        }
+
+        // 同期ファイル操作でメインスレッドが塞がる前に、開始状態を実際に描画する。
+        view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+    }
+
+    private func clearTransientOperationMessage() {
+        leftState.setTransientOperationMessage(nil)
+        rightState.setTransientOperationMessage(nil)
+        render()
+    }
+
     private func announceOpening(_ item: FileItem, in pane: ActivePane) {
         appendMessage(L10n.format("message.openingItem", item.name), in: pane)
         render()
@@ -2944,11 +3590,12 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         )
     }
 
-    private func mutateActivePane(_ update: (inout PaneState) -> Void) {
+    func mutateActivePane(_ update: (inout PaneState) -> Void) -> Void {
         mutatePane(activePane, update)
     }
 
-    private func mutateActivePane<Result>(_ update: (inout PaneState) -> Result) -> Result {
+    @discardableResult
+    func mutateActivePane<Result>(_ update: (inout PaneState) -> Result) -> Result {
         mutatePane(activePane, update)
     }
 
@@ -2970,7 +3617,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         }
     }
 
-    private var activePaneState: PaneState {
+    var activePaneState: PaneState {
         paneState(activePane)
     }
 
@@ -3038,7 +3685,11 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
                 isInPreviewMode: isInPreviewMode
             )
         }
-        messageLogView.render(messages: leftState.messageLines, theme: displayThemeSet.selectedTheme)
+        messageLogView.render(
+            messages: leftState.messageLines,
+            transientMessage: leftState.transientOperationMessage,
+            theme: displayThemeSet.selectedTheme
+        )
     }
 
     private func applyFileListLayoutSynchronously() {
@@ -4141,6 +4792,18 @@ private final class DriveListDataSource: NSObject, NSTableViewDataSource, NSTabl
         return rowView
     }
 
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard let tableView = notification.object as? NSTableView else {
+            return
+        }
+
+        let previousRow = selectedRow
+        let newRow = volumes.indices.contains(tableView.selectedRow) ? tableView.selectedRow : nil
+        selectedRow = newRow
+
+        refreshRows(tableView: tableView, rows: [previousRow, newRow].compactMap { $0 })
+    }
+
     func backgroundColor(tableView: NSTableView, row: Int) -> NSColor {
         guard selectedRow == row else {
             return theme.resolvedColorPair(isSelected: false, isMarked: false, isDirectory: false).background?.nsColor
@@ -4163,6 +4826,23 @@ private final class DriveListDataSource: NSObject, NSTableViewDataSource, NSTabl
     private var selectedBackgroundColor: NSColor {
         theme.resolvedColorPair(isSelected: true, isMarked: false, isDirectory: false).background?.nsColor
             ?? .selectedContentBackgroundColor
+    }
+
+    private func refreshRows(tableView: NSTableView, rows: [Int]) {
+        let validRows = rows.filter { volumes.indices.contains($0) }
+        guard !validRows.isEmpty else {
+            return
+        }
+
+        for row in validRows {
+            if let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) as? ThemedListRowView {
+                rowView.rowBackgroundColor = backgroundColor(tableView: tableView, row: row)
+            }
+        }
+        tableView.reloadData(
+            forRowIndexes: IndexSet(validRows),
+            columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+        )
     }
 }
 

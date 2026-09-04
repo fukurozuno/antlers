@@ -21,6 +21,7 @@ final class PortableSettingsServiceTests: XCTestCase {
             confirmsBeforeMove: false,
             confirmsBeforeTrash: false,
             confirmsBeforeQuit: false,
+            treatZipAsDirectory: true,
             fileOperationDetailLogLimit: 0,
             fileListFontSize: 18,
             appLanguage: .english,

@@ -7,7 +7,7 @@ title: Settings and appearance
 
 Press `Z` or `Command+,` to open Settings. You can change startup locations, action confirmations, file-list appearance, themes, and keybindings.
 
-![Settings window (Japanese UI)](../assets/screenshots/settings-window.png)
+![General settings with v0.6.0 options](../assets/screenshots/settings-general.png)
 
 ## General
 
@@ -16,6 +16,10 @@ General settings include the app language, Return key behavior, incremental sear
 Return key behavior applies only to unmodified `Return` in the main pane. By default it opens the selected directory, but it can also preview files while opening directories, or do nothing.
 
 Incremental search can use prefix, contains, or exact matching.
+
+Enable “Incremental search priority” to use unmodified letters, numbers, and symbols as incremental-search input first. Disable it if you want those keys to execute regular keybindings. It is disabled by default.
+
+Enable “Treat ZIP files as directories” to browse a selected ZIP file inside the pane with `Enter`. When disabled, ZIP files are treated like regular files. It is enabled by default.
 
 Enable **Show preview pane** to show an auxiliary preview that follows the selected item. Choose **Preview pane position** to place it on the left or right. A width changed by dragging or in preview mode is restored at the next launch.
 

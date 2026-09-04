@@ -71,6 +71,7 @@ final class SettingsRepositoryTests: XCTestCase {
         keyBindingSet.addSequence(KeyBindingSequence(KeyStroke(key: "X")), to: .copyMarkedItems)
         let settings = AppSettings(
             showsHiddenFiles: true,
+            incrementalSearchPriority: true,
             showsPreviewPane: true,
             usesAlternatingRowBackgrounds: true,
             showsFileIcons: false,
@@ -84,6 +85,7 @@ final class SettingsRepositoryTests: XCTestCase {
             confirmsBeforeMove: false,
             confirmsBeforeTrash: false,
             confirmsBeforeQuit: false,
+            treatZipAsDirectory: true,
             fileOperationDetailLogLimit: 12,
             fileListFontSize: 18,
             appLanguage: .english,

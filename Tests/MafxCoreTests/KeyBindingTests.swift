@@ -28,6 +28,20 @@ final class KeyBindingTests: XCTestCase {
         )
     }
 
+    func testDefaultContextMenuShortcutUsesSlash() {
+        let resolver = KeymapResolver(keyBindingSet: .default)
+
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "/")), .matched(.showContextMenu))
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .showContextMenu), [.init(.init(key: "/"))])
+    }
+
+    func testSelectedItemOperationCommandsHaveNoDefaultKeyBindings() {
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .copySelectedItem), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .moveSelectedItem), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .trashSelectedItem), [])
+        XCTAssertEqual(KeyBindingSet.default.sequences(for: .showOpenWithMenu), [])
+    }
+
     func testResolverWaitsForSecondStrokeAndResolvesSequence() {
         let resolver = KeymapResolver()
 
@@ -235,28 +249,20 @@ final class KeyBindingTests: XCTestCase {
         XCTAssertEqual(resolver.resolve(KeyStroke(key: "PageDown")), .matched(.moveSelectionPageDown))
     }
 
-    func testResolverResolvesControlSpaceAsMarkRangeFromPreviousMarkedItem() {
+    func testResolverResolvesControlShiftSpaceAsMarkRangeFromPreviousMarkedItem() {
         let resolver = KeymapResolver()
 
         XCTAssertEqual(
-            resolver.resolve(KeyStroke(key: "Space", modifiers: .control)),
+            resolver.resolve(KeyStroke(key: "Space", modifiers: [.control, .shift])),
             .matched(.markRangeFromPreviousMarkedItem)
         )
     }
 
-    func testResolverResolvesUnderscoreAsShowContextMenu() {
+    func testResolverDoesNotUseUnderscoreAsDefaultContextMenuShortcut() {
         let resolver = KeymapResolver()
 
-        XCTAssertEqual(resolver.resolve(KeyStroke(key: "_")), .matched(.showContextMenu))
-    }
-
-    func testResolverResolvesShiftUnderscoreAsShowContextMenu() {
-        let resolver = KeymapResolver()
-
-        XCTAssertEqual(
-            resolver.resolve(KeyStroke(key: "_", modifiers: .shift)),
-            .matched(.showContextMenu)
-        )
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "_")), .unmatched)
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "_", modifiers: .shift)), .unmatched)
     }
 
     func testResolverResolvesMultipleSimultaneousModifiers() {
@@ -277,7 +283,7 @@ final class KeyBindingTests: XCTestCase {
     func testKeyStrokeDisplayTextShowsMultipleModifiers() {
         let stroke = KeyStroke(key: "C", modifiers: [.control, .option, .shift, .command])
 
-        XCTAssertEqual(stroke.displayText, "Control+Option+Shift+Command+C")
+        XCTAssertEqual(stroke.displayText, "Control+Option+Shift+Cmd+C")
     }
 
     func testResolverClearsPendingStrokesAfterUnmatchedSequence() {

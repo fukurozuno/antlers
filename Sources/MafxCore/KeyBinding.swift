@@ -39,7 +39,7 @@ public struct KeyModifiers: OptionSet, Codable, Equatable, Hashable {
             parts.append("Shift")
         }
         if contains(.command) {
-            parts.append("Command")
+            parts.append("Cmd")
         }
         return parts.joined(separator: "+")
     }
@@ -111,6 +111,7 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
     case openSelectedDirectory
     case openSelectedItem
     case openWithConfiguredApplication
+    case showOpenWithMenu
     case previewSelectedFile
     case togglePreviewPane
     case enterPreviewMode
@@ -135,8 +136,14 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
     case copyMarkedItems
     case moveMarkedItems
     case trashMarkedItems
+    case copySelectedItem
+    case moveSelectedItem
+    case trashSelectedItem
     case renameSelectedItem
     case copySelectedItemWithNewName
+    case browseSelectedArchive
+    case extractSelectedArchive
+    case createArchiveFromMarkedItems
     case showContextMenu
     case syncActivePaneToOpposite
     case syncOppositePaneToActive
@@ -198,6 +205,8 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
             return "選択中項目を開く"
         case .openWithConfiguredApplication:
             return "指定アプリで開く"
+        case .showOpenWithMenu:
+            return "このアプリケーションで開く"
         case .previewSelectedFile:
             return "選択中ファイルをプレビュー"
         case .togglePreviewPane:
@@ -246,10 +255,22 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
             return "マーク済み項目を移動"
         case .trashMarkedItems:
             return "マーク済み項目をゴミ箱へ移動"
+        case .copySelectedItem:
+            return "選択中項目をコピー"
+        case .moveSelectedItem:
+            return "選択中項目を移動"
+        case .trashSelectedItem:
+            return "選択中項目をゴミ箱へ移動"
         case .renameSelectedItem:
             return "選択中項目の名前を変更"
         case .copySelectedItemWithNewName:
             return "選択中項目を別名でコピー"
+        case .browseSelectedArchive:
+            return "選択中 ZIP の内容を確認"
+        case .extractSelectedArchive:
+            return "選択中 ZIP を展開"
+        case .createArchiveFromMarkedItems:
+            return "マーク済み項目を ZIP に圧縮"
         case .showContextMenu:
             return "コンテキストメニューを表示"
         case .syncActivePaneToOpposite:
@@ -330,7 +351,7 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
         switch self {
         case .moveSelectionUp, .moveSelectionDown, .moveSelectionPageUp, .moveSelectionPageDown,
              .activateLeftPane, .activateRightPane, .switchActivePane, .openSelectedDirectory,
-             .openSelectedItem, .openWithConfiguredApplication, .previewSelectedFile, .togglePreviewPane, .enterPreviewMode, .moveToParentDirectory, .historyBack, .historyForward, .showNavigationHistory,
+             .openSelectedItem, .openWithConfiguredApplication, .showOpenWithMenu, .previewSelectedFile, .togglePreviewPane, .enterPreviewMode, .moveToParentDirectory, .historyBack, .historyForward, .showNavigationHistory,
              .syncActivePaneToOpposite, .syncOppositePaneToActive, .showJumpPathList, .beginDirectPathInput,
              .openJumpPath1, .openJumpPath2, .openJumpPath3, .openJumpPath4, .openJumpPath5,
              .openJumpPath6, .openJumpPath7, .openJumpPath8, .openJumpPath9, .openJumpPath0,
@@ -347,7 +368,9 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
              .copyFullPathsToClipboard:
             return .selection
         case .copyMarkedItems, .moveMarkedItems, .trashMarkedItems,
-             .renameSelectedItem, .copySelectedItemWithNewName, .createFolder:
+             .copySelectedItem, .moveSelectedItem, .trashSelectedItem,
+             .renameSelectedItem, .copySelectedItemWithNewName, .browseSelectedArchive,
+             .extractSelectedArchive, .createArchiveFromMarkedItems, .createFolder:
             return .fileOperation
         case .showContextMenu:
             return .application
@@ -447,6 +470,7 @@ public struct KeyBindingSet: Codable, Equatable {
         KeyBindingEntry(commandID: .openSelectedDirectory, sequences: []),
         KeyBindingEntry(commandID: .openSelectedItem, sequences: [.init(.init(key: "Return", modifiers: .command))]),
         KeyBindingEntry(commandID: .openWithConfiguredApplication, sequences: [.init(.init(key: "Return", modifiers: .control))]),
+        KeyBindingEntry(commandID: .showOpenWithMenu, sequences: []),
         KeyBindingEntry(commandID: .previewSelectedFile, sequences: [.init(.init(key: "V"))]),
         KeyBindingEntry(commandID: .togglePreviewPane, sequences: [.init(.init(key: "V", modifiers: .shift))]),
         KeyBindingEntry(commandID: .enterPreviewMode, sequences: [.init(.init(key: "V", modifiers: .option))]),
@@ -454,7 +478,7 @@ public struct KeyBindingSet: Codable, Equatable {
         KeyBindingEntry(commandID: .toggleMark, sequences: [.init(.init(key: "Space"))]),
         KeyBindingEntry(commandID: .toggleMarkReverse, sequences: [.init(.init(key: "Space", modifiers: .shift))]),
         KeyBindingEntry(commandID: .markRangeFromPreviousMarkedItem, sequences: [
-            .init(.init(key: "Space", modifiers: .control))
+            .init(.init(key: "Space", modifiers: [.control, .shift]))
         ]),
         KeyBindingEntry(commandID: .clearMarkedItems, sequences: [.init(.init(key: "End"))]),
         KeyBindingEntry(commandID: .switchActivePane, sequences: [.init(.init(key: "Tab"))]),
@@ -472,11 +496,16 @@ public struct KeyBindingSet: Codable, Equatable {
         KeyBindingEntry(commandID: .copyMarkedItems, sequences: [.init(.init(key: "C"))]),
         KeyBindingEntry(commandID: .moveMarkedItems, sequences: [.init(.init(key: "M"))]),
         KeyBindingEntry(commandID: .trashMarkedItems, sequences: [.init(.init(key: "D"))]),
+        KeyBindingEntry(commandID: .copySelectedItem, sequences: []),
+        KeyBindingEntry(commandID: .moveSelectedItem, sequences: []),
+        KeyBindingEntry(commandID: .trashSelectedItem, sequences: []),
         KeyBindingEntry(commandID: .renameSelectedItem, sequences: [.init(.init(key: "R"))]),
         KeyBindingEntry(commandID: .copySelectedItemWithNewName, sequences: [.init(.init(key: "R", modifiers: .shift))]),
+        KeyBindingEntry(commandID: .browseSelectedArchive, sequences: [.init([.init(key: "X"), .init(key: "O")])]),
+        KeyBindingEntry(commandID: .extractSelectedArchive, sequences: [.init([.init(key: "X"), .init(key: "E")])]),
+        KeyBindingEntry(commandID: .createArchiveFromMarkedItems, sequences: [.init([.init(key: "X"), .init(key: "C")])]),
         KeyBindingEntry(commandID: .showContextMenu, sequences: [
-            .init(.init(key: "_")),
-            .init(.init(key: "_", modifiers: .shift))
+            .init(.init(key: "/"))
         ]),
         KeyBindingEntry(commandID: .syncActivePaneToOpposite, sequences: [.init(.init(key: "O"))]),
         KeyBindingEntry(commandID: .syncOppositePaneToActive, sequences: [.init(.init(key: "O", modifiers: .shift))]),

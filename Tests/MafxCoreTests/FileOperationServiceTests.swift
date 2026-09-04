@@ -623,6 +623,41 @@ final class FileOperationServiceTests: XCTestCase {
         }
     }
 
+    func testConfinedTrashDoesNotUseSystemTrash() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceFile = root.appendingPathComponent("file.txt")
+        try Data("content".utf8).write(to: sourceFile)
+        let scope = try XCTUnwrap(FileSystemScope(confinedRootURL: root))
+        let service = FileOperationService(scope: scope)
+
+        let result = try service.trashItems(at: [sourceFile])
+
+        XCTAssertEqual(result.trashedCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceFile.path))
+        XCTAssertTrue(result.itemResults[0].destinationURL?.path.hasPrefix(root.appendingPathComponent(".antlers-trash").path) == true)
+    }
+
+    func testConfinedCopyPrevalidatesAllSourcesBeforeChangingDestination() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceDirectory = root.appendingPathComponent("source", isDirectory: true)
+        let destinationDirectory = root.appendingPathComponent("destination", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: false)
+        let inside = sourceDirectory.appendingPathComponent("inside.txt")
+        let outside = root.deletingLastPathComponent().appendingPathComponent("outside.txt")
+        try Data().write(to: inside)
+        try Data().write(to: outside)
+        let scope = try XCTUnwrap(FileSystemScope(confinedRootURL: root))
+        let service = FileOperationService(scope: scope)
+
+        XCTAssertThrowsError(try service.copyItems(at: [inside, outside], to: destinationDirectory) { _ in .copy }) { error in
+            XCTAssertEqual(error as? FileOperationError, .outsideScope(outside))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destinationDirectory.appendingPathComponent("inside.txt").path))
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

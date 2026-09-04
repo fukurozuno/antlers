@@ -8,6 +8,7 @@ public protocol SettingsRepository {
 public final class UserDefaultsSettingsRepository: SettingsRepository {
     private enum Key {
         static let showsHiddenFiles = "settings.showsHiddenFiles"
+        static let incrementalSearchPriority = "settings.incrementalSearchPriority"
         static let showsPreviewPane = "settings.showsPreviewPane"
         static let previewPanePosition = "settings.previewPanePosition"
         static let previewPaneWidthRatio = "settings.previewPaneWidthRatio"
@@ -24,6 +25,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         static let confirmsBeforeTrash = "settings.confirmsBeforeTrash"
         static let confirmsBeforeQuit = "settings.confirmsBeforeQuit"
         static let allowsExternalFileDrag = "settings.allowsExternalFileDrag"
+        static let treatZipAsDirectory = "settings.treatZipAsDirectory"
         static let fileOperationDetailLogLimit = "settings.fileOperationDetailLogLimit"
         static let fileListFontSize = "settings.fileListFontSize"
         static let appLanguage = "settings.appLanguage"
@@ -61,6 +63,10 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
     public func load() -> AppSettings {
         AppSettings(
             showsHiddenFiles: bool(forKey: Key.showsHiddenFiles, defaultValue: defaultSettings.showsHiddenFiles),
+            incrementalSearchPriority: bool(
+                forKey: Key.incrementalSearchPriority,
+                defaultValue: defaultSettings.incrementalSearchPriority
+            ),
             showsPreviewPane: bool(forKey: Key.showsPreviewPane, defaultValue: defaultSettings.showsPreviewPane),
             usesAlternatingRowBackgrounds: bool(
                 forKey: Key.usesAlternatingRowBackgrounds,
@@ -107,6 +113,10 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
             allowsExternalFileDrag: bool(
                 forKey: Key.allowsExternalFileDrag,
                 defaultValue: defaultSettings.allowsExternalFileDrag
+            ),
+            treatZipAsDirectory: bool(
+                forKey: Key.treatZipAsDirectory,
+                defaultValue: defaultSettings.treatZipAsDirectory
             ),
             fileOperationDetailLogLimit: int(
                 forKey: Key.fileOperationDetailLogLimit,
@@ -172,6 +182,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
 
     public func save(_ settings: AppSettings) {
         userDefaults.set(settings.showsHiddenFiles, forKey: Key.showsHiddenFiles)
+        userDefaults.set(settings.incrementalSearchPriority, forKey: Key.incrementalSearchPriority)
         userDefaults.set(settings.showsPreviewPane, forKey: Key.showsPreviewPane)
         userDefaults.set(settings.previewPanePosition.rawValue, forKey: Key.previewPanePosition)
         userDefaults.set(settings.previewPaneWidthRatio, forKey: Key.previewPaneWidthRatio)
@@ -191,6 +202,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
         userDefaults.set(settings.confirmsBeforeTrash, forKey: Key.confirmsBeforeTrash)
         userDefaults.set(settings.confirmsBeforeQuit, forKey: Key.confirmsBeforeQuit)
         userDefaults.set(settings.allowsExternalFileDrag, forKey: Key.allowsExternalFileDrag)
+        userDefaults.set(settings.treatZipAsDirectory, forKey: Key.treatZipAsDirectory)
         userDefaults.set(settings.fileOperationDetailLogLimit, forKey: Key.fileOperationDetailLogLimit)
         userDefaults.set(settings.fileListFontSize, forKey: Key.fileListFontSize)
         userDefaults.set(settings.appLanguage.rawValue, forKey: Key.appLanguage)

@@ -17,6 +17,7 @@ Antlers は、キーボードで素早く操作できる macOS 用の左右 2 �
 ## ファイルを扱う
 
 - [ファイル操作](file-operations.md)
+- [ZIP／アーカイブ操作](archive-operations.md)
 - [安全な操作](safety.md)
 
 ## 自分好みに設定する
@@ -26,6 +27,7 @@ Antlers は、キーボードで素早く操作できる macOS 用の左右 2 �
 
 ## リリースノート
 
+- [V0.6.0](releases/v0.6.0.md)
 - [V0.5.0](releases/v0.5.0.md)
 - [V0.4.0](releases/v0.4.0.md)
 - [V0.3.0](releases/v0.3.0.md)
