@@ -38,6 +38,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
     private var activePane: ActivePane = .left
     private var pendingKeySequence: PendingKeySequence?
     private let operationMenuPanelController = OperationMenuPanelController()
+    private let commandPalettePanelController = CommandPalettePanelController()
     private var operationMenuOverlay: OperationMenuOverlayView?
     private var operationMenuKeymapResolver: KeymapResolver?
     private var operationMenuRootEntries: [OperationMenuEntry] = []
@@ -265,7 +266,15 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             handleOperationMenuKey(event)
             return
         }
-
+        if let stroke = KeyStroke(event: event),
+           keyBindingSet.sequences(for: .showCommandPalette).contains(where: { $0.strokes == [stroke] }),
+           !(incrementalSearchPriority && IncrementalSearchInput.text(from: event) != nil),
+           (!(activePaneState.isIncrementalSearchActive || activePaneState.isWildcardMarkActive
+              || activePaneState.isFileMaskInputActive)
+              || event.modifierFlags.intersection([.command, .control, .option]).isEmpty == false) {
+            showCommandPalette()
+            return
+        }
         if let stroke = KeyStroke(event: event),
            keyBindingSet.sequences(for: .togglePreviewPane).contains(where: { $0.strokes == [stroke] }) {
             handleMainPaneCommand(.togglePreviewPane)
@@ -578,6 +587,8 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             promptAndCreateArchiveFromMarkedItems()
         case .showContextMenu:
             showOperationMenu()
+        case .showCommandPalette:
+            showCommandPalette()
         case .syncActivePaneToOpposite:
             syncPanePathToOppositeDirection(isReversed: false)
             render()
@@ -1047,6 +1058,9 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
             self.displayThemeSet = displayThemeSet
             appendMessageToBothPanes(L10n.string("message.appearanceChanged"))
             refreshVisibleFloatingListPanels()
+            if commandPalettePanelController.window?.isVisible == true {
+                commandPalettePanelController.applyTheme(displayThemeSet.selectedTheme)
+            }
         }
 
         if let associations = notification.userInfo?[SettingsNotificationKey.fileTypeAssociations] as? [FileTypeAssociation] {
@@ -1281,6 +1295,137 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
         let menu = makeContextMenu()
         let anchorView = activePane == .left ? leftPaneView : rightPaneView
         anchorView.popUpContextMenu(menu)
+    }
+
+    @objc func showCommandPaletteAction(_ sender: Any?) {
+        showCommandPalette()
+    }
+
+    private func showCommandPalette() {
+        guard let mainWindow = view.window, mainWindow.attachedSheet == nil else { return }
+        if commandPalettePanelController.window?.isVisible == true { return }
+        cancelPendingKeySequence()
+        dismissOperationMenu()
+
+        let items = CommandID.allCases.map { commandID in
+            CommandPaletteCatalog.item(for: commandID,
+                                       bindings: keyBindingSet.sequences(for: commandID).map(\.displayText))
+        }
+        commandPalettePanelController.onExecute = { [weak self] commandID in
+            guard let self, self.commandPaletteStatus(for: commandID).isEnabled else { return }
+            self.handleMainPaneCommand(commandID)
+        }
+        commandPalettePanelController.onOpenKeybindings = { commandID in
+            NotificationCenter.default.post(
+                name: .settingsWindowRequested,
+                object: self,
+                userInfo: ["commandID": commandID]
+            )
+        }
+        commandPalettePanelController.onDismiss = { [weak self] in
+            guard let self else { return }
+            self.view.window?.makeKeyAndOrderFront(nil)
+            self.view.window?.makeFirstResponder(self)
+        }
+        commandPalettePanelController.present(
+            items: items,
+            theme: displayThemeSet.selectedTheme,
+            status: { [weak self] commandID in
+                self?.commandPaletteStatus(for: commandID)
+                    ?? CommandPaletteCommandStatus(isEnabled: false, detail: "")
+            },
+            relativeTo: mainWindow
+        )
+    }
+
+    private func commandPaletteStatus(for commandID: CommandID) -> CommandPaletteCommandStatus {
+        func disabled(_ key: String) -> CommandPaletteCommandStatus {
+            CommandPaletteCommandStatus(isEnabled: false, detail: L10n.string(key))
+        }
+        let state = activePaneState
+        if state.isBrowsingArchive && !archiveBrowsingAllows(commandID) {
+            return disabled("commandPalette.unavailable.archive")
+        }
+        if (state.isPreviewing || isInPreviewMode) && commandID.executionScope != .application {
+            return disabled("commandPalette.unavailable.preview")
+        }
+
+        let requiresSelectedItem: Set<CommandID> = [
+            .openSelectedItem, .openWithConfiguredApplication, .showOpenWithMenu,
+            .previewSelectedFile, .toggleMark, .toggleMarkReverse, .showSelectedItemInfo,
+            .copySelectedItem, .moveSelectedItem, .trashSelectedItem, .renameSelectedItem,
+            .copySelectedItemWithNewName, .showTagEditList
+        ]
+        if requiresSelectedItem.contains(commandID) && state.selectedItem == nil {
+            return disabled("commandPalette.unavailable.selection")
+        }
+        let requiresMarks: Set<CommandID> = [
+            .copyMarkedItems, .moveMarkedItems, .trashMarkedItems,
+            .createArchiveFromMarkedItems, .markRangeFromPreviousMarkedItem
+        ]
+        if requiresMarks.contains(commandID) && state.markedItems.isEmpty {
+            return disabled("commandPalette.unavailable.marks")
+        }
+        let requiresOppositePane: Set<CommandID> = [
+            .copyMarkedItems, .moveMarkedItems, .copySelectedItem, .moveSelectedItem,
+            .extractSelectedArchive, .createArchiveFromMarkedItems
+        ]
+        if requiresOppositePane.contains(commandID) && paneState(activePane.opposite).isBrowsingArchive {
+            return disabled("commandPalette.unavailable.opposite")
+        }
+        if [.browseSelectedArchive, .extractSelectedArchive].contains(commandID)
+            && !isSelectedZIPArchive(in: state) {
+            return disabled("commandPalette.unavailable.zip")
+        }
+        if commandID == .enterPreviewMode && !showsPreviewPane {
+            return disabled("commandPalette.unavailable.previewPane")
+        }
+        if commandID == .showContextMenu && state.selectedListItem == nil {
+            return disabled("commandPalette.unavailable.selection")
+        }
+        if commandID == .openSelectedDirectory,
+           let selected = state.selectedListItem,
+           !selected.isDirectory && !selected.isParentDirectoryItem
+            && !(treatZipAsDirectory && isSelectedZIPArchive(in: state)) {
+            return disabled("commandPalette.unavailable.directory")
+        }
+        if commandID == .openSelectedDirectory && state.selectedListItem == nil {
+            return disabled("commandPalette.unavailable.selection")
+        }
+        if commandID == .historyBack && !state.navigationHistory.canMoveBackward {
+            return disabled("commandPalette.unavailable.history")
+        }
+        if commandID == .historyForward && !state.navigationHistory.canMoveForward {
+            return disabled("commandPalette.unavailable.history")
+        }
+        if [.copyFileNamesToClipboard, .copyDirectoryPathsToClipboard, .copyFullPathsToClipboard]
+            .contains(commandID) && state.clipboardCopyTargetItems.isEmpty {
+            return disabled("commandPalette.unavailable.selection")
+        }
+        if commandID == .showCommandPalette {
+            return disabled("commandPalette.unavailable.open")
+        }
+        if [.copyMarkedItems, .moveMarkedItems, .createArchiveFromMarkedItems].contains(commandID) {
+            return CommandPaletteCommandStatus(isEnabled: true,
+                detail: L10n.format("commandPalette.detail.markedTo", state.markedItems.count,
+                                    paneState(activePane.opposite).currentDirectory.path))
+        }
+        if commandID == .trashMarkedItems {
+            return CommandPaletteCommandStatus(isEnabled: true,
+                detail: L10n.format("commandPalette.detail.marked", state.markedItems.count))
+        }
+        if [.copySelectedItem, .moveSelectedItem].contains(commandID), let item = state.selectedItem {
+            return CommandPaletteCommandStatus(isEnabled: true,
+                detail: L10n.format("commandPalette.detail.selectedTo", item.name,
+                                    paneState(activePane.opposite).currentDirectory.path))
+        }
+        if [.copySelectedItem, .moveSelectedItem, .trashSelectedItem, .renameSelectedItem,
+            .copySelectedItemWithNewName].contains(commandID), let item = state.selectedItem {
+            return CommandPaletteCommandStatus(isEnabled: true,
+                detail: L10n.format("commandPalette.detail.selected", item.name))
+        }
+        return CommandPaletteCommandStatus(isEnabled: true,
+            detail: commandID.category.localizedTitle)
     }
 
     private func showOperationMenu(openingOpenWith: Bool = false) {
@@ -2151,7 +2296,7 @@ final class DualPaneViewController: NSViewController, NSSplitViewDelegate {
              .activateLeftPane, .activateRightPane, .widenLeftPane, .narrowLeftPane,
              .enlargeMessageWindow, .shrinkMessageWindow, .sortBySize, .sortByExtension,
              .sortByName, .sortByModificationDate, .togglePreviewPane, .openSettings,
-             .quitApplication, .increaseFileListFontSize, .decreaseFileListFontSize,
+             .quitApplication, .showCommandPalette, .increaseFileListFontSize, .decreaseFileListFontSize,
              .resetFileListFontSize:
             return true
         default:

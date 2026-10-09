@@ -543,6 +543,7 @@ public extension DisplayTheme {
 
 public enum SettingsToggleID: Equatable {
     case incrementalSearchPriority
+    case showCommandPaletteButton
     case showPreviewPane
     case showHiddenFiles
     case useAlternatingRowBackgrounds
@@ -670,6 +671,7 @@ public struct SettingsState: Equatable {
     public private(set) var focusArea: SettingsFocusArea
     public private(set) var showsHiddenFiles: Bool
     public private(set) var incrementalSearchPriority: Bool
+    public private(set) var showsCommandPaletteButton: Bool
     public private(set) var showsPreviewPane: Bool
     public private(set) var usesAlternatingRowBackgrounds: Bool
     public private(set) var showsFileIcons: Bool
@@ -708,6 +710,7 @@ public struct SettingsState: Equatable {
         focusArea: SettingsFocusArea = .items,
         showsHiddenFiles: Bool = false,
         incrementalSearchPriority: Bool = false,
+        showsCommandPaletteButton: Bool = true,
         showsPreviewPane: Bool = false,
         usesAlternatingRowBackgrounds: Bool = false,
         showsFileIcons: Bool = true,
@@ -745,6 +748,7 @@ public struct SettingsState: Equatable {
         self.focusArea = focusArea
         self.showsHiddenFiles = showsHiddenFiles
         self.incrementalSearchPriority = incrementalSearchPriority
+        self.showsCommandPaletteButton = showsCommandPaletteButton
         self.showsPreviewPane = showsPreviewPane
         self.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
         self.showsFileIcons = showsFileIcons
@@ -900,6 +904,8 @@ public struct SettingsState: Equatable {
         switch toggleID {
         case .incrementalSearchPriority:
             return incrementalSearchPriority
+        case .showCommandPaletteButton:
+            return showsCommandPaletteButton
         case .showPreviewPane:
             return showsPreviewPane
         case .showHiddenFiles:
@@ -939,6 +945,8 @@ public struct SettingsState: Equatable {
         switch toggleID {
         case .incrementalSearchPriority:
             incrementalSearchPriority = isOn
+        case .showCommandPaletteButton:
+            showsCommandPaletteButton = isOn
         case .showPreviewPane:
             showsPreviewPane = isOn
         case .showHiddenFiles:
@@ -1166,6 +1174,8 @@ public struct SettingsState: Equatable {
         switch toggleID {
         case .incrementalSearchPriority:
             incrementalSearchPriority.toggle()
+        case .showCommandPaletteButton:
+            showsCommandPaletteButton.toggle()
         case .showPreviewPane:
             showsPreviewPane.toggle()
         case .showHiddenFiles:
@@ -1252,6 +1262,7 @@ public struct AppSettings: Codable, Equatable {
 
     public var showsHiddenFiles: Bool
     public var incrementalSearchPriority: Bool
+    public var showsCommandPaletteButton: Bool
     public var showsPreviewPane: Bool
     public var usesAlternatingRowBackgrounds: Bool
     public var showsFileIcons: Bool
@@ -1294,6 +1305,7 @@ public struct AppSettings: Codable, Equatable {
     public init(
         showsHiddenFiles: Bool = false,
         incrementalSearchPriority: Bool = false,
+        showsCommandPaletteButton: Bool = true,
         showsPreviewPane: Bool = false,
         usesAlternatingRowBackgrounds: Bool = false,
         showsFileIcons: Bool = true,
@@ -1335,6 +1347,7 @@ public struct AppSettings: Codable, Equatable {
     ) {
         self.showsHiddenFiles = showsHiddenFiles
         self.incrementalSearchPriority = incrementalSearchPriority
+        self.showsCommandPaletteButton = showsCommandPaletteButton
         self.showsPreviewPane = showsPreviewPane
         self.usesAlternatingRowBackgrounds = usesAlternatingRowBackgrounds
         self.showsFileIcons = showsFileIcons
@@ -1394,6 +1407,7 @@ public struct AppSettings: Codable, Equatable {
         SettingsState(
             showsHiddenFiles: showsHiddenFiles,
             incrementalSearchPriority: incrementalSearchPriority,
+            showsCommandPaletteButton: showsCommandPaletteButton,
             showsPreviewPane: showsPreviewPane,
             usesAlternatingRowBackgrounds: usesAlternatingRowBackgrounds,
             showsFileIcons: showsFileIcons,
@@ -1446,6 +1460,7 @@ public struct AppSettings: Codable, Equatable {
     public mutating func applySettingsState(_ state: SettingsState) {
         showsHiddenFiles = state.showsHiddenFiles
         incrementalSearchPriority = state.incrementalSearchPriority
+        showsCommandPaletteButton = state.showsCommandPaletteButton
         showsPreviewPane = state.showsPreviewPane
         usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
         showsFileIcons = state.showsFileIcons
@@ -1556,6 +1571,11 @@ public extension SettingsState {
                 title: "Incremental search priority",
                 localizationKey: "settings.item.incrementalSearchPriority",
                 toggleID: .incrementalSearchPriority
+            ),
+            SettingsItem(
+                title: "Show command palette button",
+                localizationKey: "settings.item.showCommandPaletteButton",
+                toggleID: .showCommandPaletteButton
             ),
             SettingsItem(
                 title: "Show preview pane",

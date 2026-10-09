@@ -27,8 +27,8 @@ final class SettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: settingsViewController)
 
         window.title = L10n.string("settings.window.title")
-        window.setContentSize(NSSize(width: 780, height: 460))
-        window.minSize = NSSize(width: 640, height: 320)
+        window.setContentSize(NSSize(width: 820, height: 560))
+        window.minSize = NSSize(width: 760, height: 480)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
         window.center()
@@ -45,7 +45,7 @@ final class SettingsWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func presentAsSheet(for parentWindow: NSWindow) {
+    func presentAsSheet(for parentWindow: NSWindow, focusedCommandID: CommandID? = nil) {
         guard let window else {
             return
         }
@@ -55,7 +55,7 @@ final class SettingsWindowController: NSWindowController {
             return
         }
 
-        settingsViewController.prepareForPresentation()
+        settingsViewController.prepareForPresentation(focusedCommandID: focusedCommandID)
         presentingWindow = parentWindow
         parentWindow.beginSheet(window)
     }
@@ -76,7 +76,7 @@ final class SettingsWindowController: NSWindowController {
     }
 }
 
-private final class SettingsViewController: NSViewController, NSWindowDelegate {
+private final class SettingsViewController: NSViewController, NSWindowDelegate, NSSearchFieldDelegate {
     var onDismiss: (() -> Void)?
 
     private var committedState: SettingsState
@@ -98,10 +98,20 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     private let movePathDownButton = NSButton(title: L10n.string("settings.button.moveDown"), target: nil, action: nil)
     private let pathButtonRow = NSView()
     private let keyBindingStatusField = NSTextField(labelWithString: "")
+    private let keyBindingSearchField = NSSearchField()
+    private let keyBindingSearchButton = NSButton(title: "", target: nil, action: nil)
+    private let keyBindingClearSearchButton = NSButton(title: "", target: nil, action: nil)
+    private let keyBindingSearchRow = NSStackView()
+    private let keyBindingCaptureView = KeyBindingCaptureView()
+    private let keyBindingDetailLabel = NSTextField(labelWithString: "")
+    private let keyBindingDetailTable = NSTableView()
+    private let keyBindingDetailScrollView = NSScrollView()
+    private let keyBindingDetailDataSource = KeyBindingDetailDataSource()
     private let recordKeyBindingButton = NSButton(title: L10n.string("settings.button.recordBinding"), target: nil, action: nil)
-    private let removeKeyBindingButton = NSButton(title: L10n.string("settings.button.removeLast"), target: nil, action: nil)
-    private let resetKeyBindingButton = NSButton(title: L10n.string("settings.button.resetCommand"), target: nil, action: nil)
-    private let resetAllKeyBindingsButton = NSButton(title: L10n.string("settings.button.resetAll"), target: nil, action: nil)
+    private let keyBindingMoreButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let keyBindingKeyActionRow = NSStackView()
+    private let keyBindingKeyAssignButton = NSButton(title: "", target: nil, action: nil)
+    private let keyBindingKeyRemoveButton = NSButton(title: "", target: nil, action: nil)
     private let keyBindingButtonRow = NSView()
     private let themePopupButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private let addThemeButton = NSButton(title: L10n.string("settings.button.duplicateCurrentTheme"), target: nil, action: nil)
@@ -139,6 +149,14 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     private var exportSettingsPartialLeadingConstraint: NSLayoutConstraint?
     private var recordingCommandID: CommandID?
     private var recordedKeyStrokes: [KeyStroke] = []
+    private var searchedKeyStrokes: [KeyStroke] = []
+    private var isCapturingKeySearch = false
+    private var keyBindingSearchHeightConstraint: NSLayoutConstraint?
+    private var keyBindingCaptureHeightConstraint: NSLayoutConstraint?
+    private var keyBindingDetailHeightConstraint: NSLayoutConstraint?
+    private var captureDisabledControlStates: [(NSControl, Bool)] = []
+    private var closeButtonWasEnabled: Bool?
+    private var miniaturizeButtonWasEnabled: Bool?
     private var isRendering = false
     private var isClosingAfterCommit = false
 
@@ -189,6 +207,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         tableView.dataSource = dataSource
         tableView.delegate = dataSource
         tableView.target = self
+        tableView.action = #selector(commandTableClicked(_:))
         tableView.doubleAction = #selector(tableViewDoubleClicked(_:))
         tableView.headerView = nil
         tableView.allowsMultipleSelection = false
@@ -272,12 +291,76 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         movePathDownButton.action = #selector(movePathDownButtonClicked(_:))
         recordKeyBindingButton.target = self
         recordKeyBindingButton.action = #selector(recordKeyBindingButtonClicked(_:))
-        removeKeyBindingButton.target = self
-        removeKeyBindingButton.action = #selector(removeKeyBindingButtonClicked(_:))
-        resetKeyBindingButton.target = self
-        resetKeyBindingButton.action = #selector(resetKeyBindingButtonClicked(_:))
-        resetAllKeyBindingsButton.target = self
-        resetAllKeyBindingsButton.action = #selector(resetAllKeyBindingsButtonClicked(_:))
+        keyBindingMoreButton.addItems(withTitles: ["⋯", L10n.string("settings.button.resetCommand"),
+                                                   L10n.string("settings.button.resetAll")])
+        keyBindingMoreButton.item(at: 1)?.target = self
+        keyBindingMoreButton.item(at: 1)?.action = #selector(resetCommandMenuItemSelected(_:))
+        keyBindingMoreButton.item(at: 2)?.target = self
+        keyBindingMoreButton.item(at: 2)?.action = #selector(resetAllMenuItemSelected(_:))
+        keyBindingKeyAssignButton.target = self
+        keyBindingKeyAssignButton.action = #selector(assignSearchedKeyButtonClicked(_:))
+        keyBindingKeyRemoveButton.target = self
+        keyBindingKeyRemoveButton.action = #selector(removeSearchedKeyButtonClicked(_:))
+        keyBindingSearchField.delegate = self
+        keyBindingSearchField.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingSearchButton.target = self
+        keyBindingSearchButton.action = #selector(searchKeyBindingButtonClicked(_:))
+        keyBindingClearSearchButton.target = self
+        keyBindingClearSearchButton.action = #selector(clearKeyBindingSearchButtonClicked(_:))
+        keyBindingSearchRow.orientation = .horizontal
+        keyBindingSearchRow.spacing = 8
+        keyBindingSearchRow.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingSearchRow.addArrangedSubview(keyBindingSearchField)
+        keyBindingSearchRow.addArrangedSubview(keyBindingSearchButton)
+        keyBindingSearchRow.addArrangedSubview(keyBindingClearSearchButton)
+        keyBindingCaptureView.onStroke = { [weak self] stroke in
+            guard let self else { return }
+            if self.recordingCommandID != nil {
+                self.recordKeyBindingStroke(stroke)
+            } else {
+                self.searchKeyBindingStroke(stroke)
+            }
+        }
+        keyBindingCaptureView.onFinish = { [weak self] in
+            guard let self else { return }
+            if self.recordingCommandID != nil {
+                self.commitRecordedKeyBinding()
+            } else {
+                self.view.window?.makeFirstResponder(self.keyBindingCaptureView)
+            }
+        }
+        keyBindingCaptureView.onCancel = { [weak self] in
+            guard let self else { return }
+            if self.recordingCommandID != nil {
+                self.cancelRecordedKeyBinding()
+                self.render()
+                self.view.window?.makeFirstResponder(self.tableView)
+            } else {
+                self.clearKeyBindingSearch()
+            }
+        }
+        keyBindingCaptureView.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingCaptureView.isHidden = true
+
+        keyBindingDetailLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        keyBindingDetailTable.headerView = nil
+        keyBindingDetailTable.rowHeight = 24
+        keyBindingDetailTable.intercellSpacing = .zero
+        keyBindingDetailTable.setAccessibilityLabel(L10n.string("settings.keybinding.details"))
+        let detailColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("binding"))
+        detailColumn.resizingMask = .autoresizingMask
+        keyBindingDetailTable.addTableColumn(detailColumn)
+        keyBindingDetailTable.dataSource = keyBindingDetailDataSource
+        keyBindingDetailTable.delegate = keyBindingDetailDataSource
+        keyBindingDetailDataSource.onRemoveSequence = { [weak self] index in
+            self?.removeKeyBindingSequence(at: index)
+        }
+        keyBindingDetailTable.allowsEmptySelection = true
+        keyBindingDetailTable.target = self
+        keyBindingDetailScrollView.documentView = keyBindingDetailTable
+        keyBindingDetailScrollView.hasVerticalScroller = true
+        keyBindingDetailScrollView.borderType = .bezelBorder
+        keyBindingDetailScrollView.translatesAutoresizingMaskIntoConstraints = false
         themePopupButton.target = self
         themePopupButton.action = #selector(themePopupChanged(_:))
         addThemeButton.target = self
@@ -335,17 +418,24 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         keyBindingStatusField.textColor = .secondaryLabelColor
         keyBindingStatusField.lineBreakMode = .byTruncatingTail
         keyBindingStatusField.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingDetailLabel.translatesAutoresizingMaskIntoConstraints = false
+        pathEditorStack.addArrangedSubview(keyBindingDetailLabel)
+        pathEditorStack.addArrangedSubview(keyBindingDetailScrollView)
         recordKeyBindingButton.translatesAutoresizingMaskIntoConstraints = false
-        removeKeyBindingButton.translatesAutoresizingMaskIntoConstraints = false
-        resetKeyBindingButton.translatesAutoresizingMaskIntoConstraints = false
-        resetAllKeyBindingsButton.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingMoreButton.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingKeyActionRow.orientation = .horizontal
+        keyBindingKeyActionRow.spacing = 8
+        keyBindingKeyActionRow.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingKeyAssignButton.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingKeyRemoveButton.translatesAutoresizingMaskIntoConstraints = false
+        keyBindingKeyActionRow.addArrangedSubview(keyBindingKeyAssignButton)
+        keyBindingKeyActionRow.addArrangedSubview(keyBindingKeyRemoveButton)
         keyBindingButtonRow.translatesAutoresizingMaskIntoConstraints = false
         keyBindingButtonRow.addSubview(recordKeyBindingButton)
-        keyBindingButtonRow.addSubview(removeKeyBindingButton)
-        keyBindingButtonRow.addSubview(resetKeyBindingButton)
-        keyBindingButtonRow.addSubview(resetAllKeyBindingsButton)
+        keyBindingButtonRow.addSubview(keyBindingMoreButton)
         pathEditorStack.addArrangedSubview(keyBindingStatusField)
         pathEditorStack.addArrangedSubview(keyBindingButtonRow)
+        pathEditorStack.addArrangedSubview(keyBindingKeyActionRow)
 
         themePopupButton.translatesAutoresizingMaskIntoConstraints = false
         addThemeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -454,6 +544,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         exportSettingsButton.nextKeyView = segmentedControl
 
         container.addSubview(segmentedControl)
+        container.addSubview(keyBindingSearchRow)
         container.addSubview(scrollView)
         container.addSubview(themePreviewView)
         container.addSubview(pathEditorStack)
@@ -462,6 +553,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         container.addSubview(importSettingsButton)
         container.addSubview(importSelectedSettingsButton)
         container.addSubview(exportSettingsButton)
+        container.addSubview(keyBindingCaptureView)
 
         let pathEditorHeightConstraint = pathEditorStack.heightAnchor.constraint(equalToConstant: 0)
         self.pathEditorHeightConstraint = pathEditorHeightConstraint
@@ -487,13 +579,29 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         self.exportSettingsNormalLeadingConstraint = exportSettingsNormalLeadingConstraint
         self.exportSettingsPartialLeadingConstraint = exportSettingsPartialLeadingConstraint
 
+        let keyBindingSearchHeightConstraint = keyBindingSearchRow.heightAnchor.constraint(equalToConstant: 0)
+        self.keyBindingSearchHeightConstraint = keyBindingSearchHeightConstraint
+        let keyBindingCaptureHeightConstraint = keyBindingCaptureView.heightAnchor.constraint(equalToConstant: 0)
+        self.keyBindingCaptureHeightConstraint = keyBindingCaptureHeightConstraint
+        let keyBindingDetailHeightConstraint = keyBindingDetailScrollView.heightAnchor.constraint(equalToConstant: 28)
+        self.keyBindingDetailHeightConstraint = keyBindingDetailHeightConstraint
         NSLayoutConstraint.activate([
             segmentedControl.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
             segmentedControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -20),
             segmentedControl.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
 
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            scrollView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 16),
+            keyBindingSearchRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            keyBindingSearchRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            keyBindingSearchRow.topAnchor.constraint(equalTo: keyBindingCaptureView.bottomAnchor),
+            keyBindingSearchHeightConstraint,
+            keyBindingCaptureView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            keyBindingCaptureView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            keyBindingCaptureView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 8),
+            keyBindingCaptureHeightConstraint,
+            keyBindingSearchButton.widthAnchor.constraint(equalToConstant: 130),
+            keyBindingClearSearchButton.widthAnchor.constraint(equalToConstant: 64),
+            scrollView.topAnchor.constraint(equalTo: keyBindingSearchRow.bottomAnchor, constant: 8),
             scrollView.bottomAnchor.constraint(equalTo: pathEditorStack.topAnchor, constant: -10),
             scrollViewNormalTrailingConstraint,
 
@@ -522,14 +630,13 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             movePathUpButton.centerYAnchor.constraint(equalTo: deletePathButton.centerYAnchor),
 
             keyBindingButtonRow.heightAnchor.constraint(equalToConstant: 30),
-            resetAllKeyBindingsButton.trailingAnchor.constraint(equalTo: keyBindingButtonRow.trailingAnchor),
-            resetAllKeyBindingsButton.centerYAnchor.constraint(equalTo: keyBindingButtonRow.centerYAnchor),
-            resetKeyBindingButton.trailingAnchor.constraint(equalTo: resetAllKeyBindingsButton.leadingAnchor, constant: -8),
-            resetKeyBindingButton.centerYAnchor.constraint(equalTo: resetAllKeyBindingsButton.centerYAnchor),
-            removeKeyBindingButton.trailingAnchor.constraint(equalTo: resetKeyBindingButton.leadingAnchor, constant: -8),
-            removeKeyBindingButton.centerYAnchor.constraint(equalTo: resetAllKeyBindingsButton.centerYAnchor),
-            recordKeyBindingButton.trailingAnchor.constraint(equalTo: removeKeyBindingButton.leadingAnchor, constant: -8),
-            recordKeyBindingButton.centerYAnchor.constraint(equalTo: resetAllKeyBindingsButton.centerYAnchor),
+            keyBindingDetailHeightConstraint,
+            keyBindingMoreButton.trailingAnchor.constraint(equalTo: keyBindingButtonRow.trailingAnchor),
+            keyBindingMoreButton.centerYAnchor.constraint(equalTo: keyBindingButtonRow.centerYAnchor),
+            keyBindingMoreButton.widthAnchor.constraint(equalToConstant: 40),
+            recordKeyBindingButton.leadingAnchor.constraint(equalTo: keyBindingButtonRow.leadingAnchor),
+            recordKeyBindingButton.centerYAnchor.constraint(equalTo: keyBindingButtonRow.centerYAnchor),
+            keyBindingKeyActionRow.heightAnchor.constraint(equalToConstant: 30),
 
             themePopupButton.widthAnchor.constraint(equalToConstant: 160),
             addThemeButton.widthAnchor.constraint(equalToConstant: 180),
@@ -571,11 +678,20 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.defaultButtonCell = okButton.cell as? NSButtonCell
-        view.window?.makeFirstResponder(tableView)
+        view.window?.makeFirstResponder(isKeyBindingTabSelected ? keyBindingSearchField : tableView)
     }
 
-    func prepareForPresentation() {
+    func prepareForPresentation(focusedCommandID: CommandID? = nil) {
         state = committedState
+        keyBindingSearchField.stringValue = ""
+        searchedKeyStrokes = []
+        setKeyBindingCaptureActive(false)
+        if let focusedCommandID,
+           let tabIndex = state.tabs.firstIndex(where: { $0.title == "Keybindings" }),
+           let commandIndex = CommandID.allCases.firstIndex(of: focusedCommandID) {
+            state.selectTab(at: tabIndex)
+            state.focusItem(at: commandIndex)
+        }
         if isViewLoaded {
             render()
         }
@@ -587,20 +703,27 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         }
 
         state.selectTab(at: sender.selectedSegment)
+        if !isKeyBindingTabSelected { clearKeyBindingSearch(shouldRefresh: false) }
         cancelRecordedKeyBinding()
         populatePathEditorFromFocusedRow()
         render()
-        view.window?.makeFirstResponder(tableView)
+        view.window?.makeFirstResponder(isKeyBindingTabSelected ? keyBindingSearchField : tableView)
     }
 
     private func moveTabSelection(by delta: Int) {
         state.moveTabSelection(by: delta)
+        if !isKeyBindingTabSelected { clearKeyBindingSearch(shouldRefresh: false) }
         render()
         view.window?.makeFirstResponder(segmentedControl)
     }
 
     private func moveItemFocus(by delta: Int) {
-        if isPathTabSelected {
+        if isKeyBindingTabSelected {
+            let commands = dataSource.keyBindingCommandIDs
+            guard !commands.isEmpty else { return }
+            let next = max(0, min(commands.count - 1, tableView.selectedRow + delta))
+            if let index = CommandID.allCases.firstIndex(of: commands[next]) { state.focusItem(at: index) }
+        } else if isPathTabSelected {
             state.moveJumpPathFocus(by: delta)
         } else if isFileTypesTabSelected {
             state.moveFileTypeAssociationFocus(by: delta)
@@ -624,7 +747,13 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             return
         }
 
-        if isPathTabSelected {
+        if isKeyBindingTabSelected {
+            guard dataSource.keyBindingCommandIDs.indices.contains(index),
+                  let commandIndex = CommandID.allCases.firstIndex(of: dataSource.keyBindingCommandIDs[index]) else {
+                return
+            }
+            state.focusItem(at: commandIndex)
+        } else if isPathTabSelected {
             state.focusJumpPath(at: index)
         } else if isFileTypesTabSelected {
             state.focusFileTypeAssociation(at: index)
@@ -686,18 +815,129 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         beginRecordingKeyBinding()
     }
 
-    @objc private func removeKeyBindingButtonClicked(_ sender: NSButton) {
-        removeLastKeyBindingFromFocusedCommand()
+    @objc private func assignSearchedKeyButtonClicked(_ sender: NSButton) {
+        assignSearchedKey()
     }
 
-    @objc private func resetKeyBindingButtonClicked(_ sender: NSButton) {
+    private func assignSearchedKey() {
+        guard !searchedKeyStrokes.isEmpty else { return }
+        let sequence = KeyBindingSequence(searchedKeyStrokes)
+        let exact = state.keyBindingSet.bindings(startingWith: searchedKeyStrokes)
+            .filter { $0.sequence.strokes == searchedKeyStrokes }
+        if exact.count == 1 {
+            presentKeyBindingAssignment(for: sequence, replacing: exact[0].commandID)
+        } else if exact.isEmpty && state.keyBindingSet.canAssign(sequence) {
+            presentKeyBindingAssignment(for: sequence, replacing: nil)
+        }
+    }
+
+    @objc private func removeSearchedKeyButtonClicked(_ sender: NSButton) {
+        let exact = state.keyBindingSet.bindings(startingWith: searchedKeyStrokes)
+            .filter { $0.sequence.strokes == searchedKeyStrokes }
+        guard exact.count == 1,
+              let index = state.keyBindingSet.sequences(for: exact[0].commandID)
+                .firstIndex(where: { $0.strokes == searchedKeyStrokes }) else { return }
+        state.removeKeyBindingSequence(at: index, from: exact[0].commandID)
+        refreshKeyBindingResults()
+        view.window?.makeFirstResponder(keyBindingCaptureView)
+    }
+
+    @objc private func resetCommandMenuItemSelected(_ sender: NSMenuItem) {
         resetFocusedKeyBindingToDefault()
     }
 
-    @objc private func resetAllKeyBindingsButtonClicked(_ sender: NSButton) {
+    @objc private func resetAllMenuItemSelected(_ sender: NSMenuItem) {
         state.resetAllKeyBindingsToDefault()
         cancelRecordedKeyBinding()
         render()
+    }
+
+    @objc private func searchKeyBindingButtonClicked(_ sender: NSButton) {
+        searchedKeyStrokes = []
+        keyBindingSearchField.stringValue = ""
+        setKeyBindingCaptureActive(true)
+        refreshKeyBindingResults()
+        view.window?.makeFirstResponder(keyBindingCaptureView)
+    }
+
+    @objc private func clearKeyBindingSearchButtonClicked(_ sender: NSButton) {
+        clearKeyBindingSearch()
+    }
+
+    private func clearKeyBindingSearch(shouldRefresh: Bool = true) {
+        setKeyBindingCaptureActive(false)
+        searchedKeyStrokes = []
+        keyBindingSearchField.stringValue = ""
+        if shouldRefresh {
+            refreshKeyBindingResults()
+            view.window?.makeFirstResponder(keyBindingSearchField)
+        }
+    }
+
+    private func setKeyBindingCaptureActive(_ active: Bool) {
+        guard isCapturingKeySearch != active else { return }
+        isCapturingKeySearch = active
+        keyBindingCaptureView.isHidden = !active
+        keyBindingCaptureHeightConstraint?.constant = active ? 112 : 0
+        setCaptureInteractionActive(active)
+        updateKeySearchCaptureDisplay()
+    }
+
+    private func setCaptureInteractionActive(_ active: Bool) {
+        if active {
+            captureDisabledControlStates = captureDisabledControls.map { ($0, $0.isEnabled) }
+        } else {
+            for (control, wasEnabled) in captureDisabledControlStates { control.isEnabled = wasEnabled }
+            captureDisabledControlStates = []
+        }
+        enforceCaptureDisabledControls()
+        let closeButton = view.window?.standardWindowButton(.closeButton)
+        let miniaturizeButton = view.window?.standardWindowButton(.miniaturizeButton)
+        if active {
+            closeButtonWasEnabled = closeButton?.isEnabled
+            miniaturizeButtonWasEnabled = miniaturizeButton?.isEnabled
+            closeButton?.isEnabled = false
+            miniaturizeButton?.isEnabled = false
+        } else {
+            if let closeButtonWasEnabled { closeButton?.isEnabled = closeButtonWasEnabled }
+            if let miniaturizeButtonWasEnabled { miniaturizeButton?.isEnabled = miniaturizeButtonWasEnabled }
+            closeButtonWasEnabled = nil
+            miniaturizeButtonWasEnabled = nil
+        }
+    }
+
+    private var captureDisabledControls: [NSControl] {
+        [segmentedControl, keyBindingSearchField, keyBindingSearchButton,
+         keyBindingClearSearchButton, keyBindingDetailTable,
+         recordKeyBindingButton, keyBindingMoreButton, okButton, cancelButton,
+         importSettingsButton, importSelectedSettingsButton, exportSettingsButton]
+    }
+
+    private func enforceCaptureDisabledControls() {
+        guard isCapturingKeySearch || recordingCommandID != nil else { return }
+        for control in captureDisabledControls { control.isEnabled = false }
+    }
+
+    private func updateKeySearchCaptureDisplay() {
+        let status: String
+        if searchedKeyStrokes.isEmpty {
+            status = L10n.string("settings.keybinding.captureHelp")
+        } else if !dataSource.keyBindingCommandIDs.isEmpty {
+            status = L10n.format("settings.keybinding.captureMatches", dataSource.keyBindingCommandIDs.count)
+        } else if state.keyBindingSet.canAssign(KeyBindingSequence(searchedKeyStrokes)) {
+            status = L10n.string("settings.keybinding.captureUnassigned")
+        } else {
+            status = L10n.string("settings.keybinding.captureUnavailable")
+        }
+        keyBindingCaptureView.update(
+            strokes: searchedKeyStrokes,
+            title: L10n.string("settings.keybinding.captureTitle"),
+            status: status
+        )
+    }
+
+    @objc private func commandTableClicked(_ sender: NSTableView) {
+        if isKeyBindingTabSelected && isCapturingKeySearch { leaveKeySearchForSelectedCommand() }
     }
 
     @objc private func okButtonClicked(_ sender: NSButton) {
@@ -762,9 +1002,12 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         dataSource.items = state.selectedTab?.items ?? []
         dataSource.jumpPathEntries = state.jumpPathEntries
         dataSource.keyBindingSet = state.keyBindingSet
+        dataSource.keyBindingCommandIDs = matchingKeyBindingCommands()
+        updateKeyBindingEmptyResult()
         dataSource.displayTheme = state.displayThemeSet.selectedTheme
         dataSource.fileTypeAssociations = state.fileTypeAssociations
         dataSource.incrementalSearchPriority = state.incrementalSearchPriority
+        dataSource.showsCommandPaletteButton = state.showsCommandPaletteButton
         dataSource.showsPreviewPane = state.showsPreviewPane
         dataSource.showsHiddenFiles = state.showsHiddenFiles
         dataSource.usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
@@ -832,14 +1075,22 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         } else {
             importSettingsButton.nextKeyView = exportSettingsButton
         }
-        keyBindingStatusField.isHidden = !isKeyBindingTabSelected
-        recordKeyBindingButton.isHidden = !isKeyBindingTabSelected
-        removeKeyBindingButton.isHidden = !isKeyBindingTabSelected
-        resetKeyBindingButton.isHidden = !isKeyBindingTabSelected
-        resetAllKeyBindingsButton.isHidden = !isKeyBindingTabSelected
-        keyBindingButtonRow.isHidden = !isKeyBindingTabSelected
+        keyBindingSearchRow.isHidden = !isKeyBindingTabSelected || isCapturingKeySearch
+        keyBindingSearchHeightConstraint?.constant = isKeyBindingTabSelected && !isCapturingKeySearch ? 30 : 0
+        tableView.allowsEmptySelection = isKeyBindingTabSelected
+        segmentedControl.nextKeyView = isKeyBindingTabSelected ? keyBindingSearchField : tableView
+        if isKeyBindingTabSelected {
+            keyBindingSearchField.nextKeyView = keyBindingSearchButton
+            keyBindingSearchButton.nextKeyView = keyBindingClearSearchButton
+            keyBindingClearSearchButton.nextKeyView = tableView
+            tableView.nextKeyView = keyBindingDetailTable
+            keyBindingDetailTable.nextKeyView = recordKeyBindingButton
+            recordKeyBindingButton.nextKeyView = keyBindingMoreButton
+            keyBindingMoreButton.nextKeyView = okButton
+        } else {
+            tableView.nextKeyView = okButton
+        }
         appearanceEditorStack.isHidden = !isThemeTabSelected
-        pathEditorHeightConstraint?.constant = editorHeight
         addPathButton.isEnabled = true
         updatePathButton.isEnabled = isFileTypesTabSelected
             ? state.fileTypeAssociations.indices.contains(state.focusedItemIndex)
@@ -848,21 +1099,30 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         movePathUpButton.isEnabled = state.focusedItemIndex > 0
         movePathDownButton.isEnabled = state.focusedItemIndex < state.jumpPathEntries.count - 1
         recordKeyBindingButton.isEnabled = focusedCommandID != nil
-        removeKeyBindingButton.isEnabled = focusedCommandID.map { !state.keyBindingSet.sequences(for: $0).isEmpty } ?? false
-        resetKeyBindingButton.isEnabled = focusedCommandID != nil
-        resetAllKeyBindingsButton.isEnabled = true
+        updateKeyBindingDetails()
         keyBindingStatusField.stringValue = keyBindingStatusText()
+        updateKeyBindingModeUI()
+        if recordingCommandID != nil { updateRecordingCaptureDisplay() }
+        enforceCaptureDisabledControls()
         renderAppearanceEditor()
         renderFileTypeEditor()
 
         let rowCount = dataSource.numberOfRows(in: tableView)
-        if (0..<rowCount).contains(state.focusedItemIndex) {
-            tableView.selectRowIndexes(IndexSet(integer: state.focusedItemIndex), byExtendingSelection: false)
-            tableView.scrollRowToVisible(state.focusedItemIndex)
+        let selectedRow = isKeyBindingTabSelected
+            ? dataSource.keyBindingCommandIDs.firstIndex(of: focusedCommandID ?? .moveSelectionUp)
+            : (0..<rowCount).contains(state.focusedItemIndex) ? state.focusedItemIndex : nil
+        if let selectedRow {
+            tableView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+            tableView.scrollRowToVisible(selectedRow)
         } else {
             tableView.deselectAll(nil)
         }
 
+        if view.window?.firstResponder == keyBindingSearchField
+            || view.window?.firstResponder == keyBindingSearchField.currentEditor()
+            || isCapturingKeySearch || recordingCommandID != nil {
+            return
+        }
         switch state.focusArea {
         case .tabs:
             view.window?.makeFirstResponder(segmentedControl)
@@ -883,10 +1143,15 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         deletePathButton.title = L10n.string("settings.button.delete")
         movePathUpButton.title = L10n.string("settings.button.moveUp")
         movePathDownButton.title = L10n.string("settings.button.moveDown")
-        recordKeyBindingButton.title = L10n.string("settings.button.recordBinding")
-        removeKeyBindingButton.title = L10n.string("settings.button.removeLast")
-        resetKeyBindingButton.title = L10n.string("settings.button.resetCommand")
-        resetAllKeyBindingsButton.title = L10n.string("settings.button.resetAll")
+        recordKeyBindingButton.title = L10n.string("settings.button.addBinding")
+        keyBindingSearchField.placeholderString = L10n.string("settings.keybinding.searchPlaceholder")
+        keyBindingSearchButton.title = isCapturingKeySearch
+            ? L10n.string("settings.keybinding.keySearchRecording") : L10n.string("settings.button.searchByKey")
+        keyBindingClearSearchButton.title = L10n.string("settings.button.clearSearch")
+        keyBindingKeyRemoveButton.title = L10n.string("settings.button.removeSearchedKey")
+        keyBindingMoreButton.item(at: 1)?.title = L10n.string("settings.button.resetCommand")
+        keyBindingMoreButton.item(at: 2)?.title = L10n.string("settings.button.resetAll")
+        keyBindingDetailLabel.stringValue = L10n.string("settings.keybinding.details")
         addThemeButton.title = L10n.string("settings.button.duplicateCurrentTheme")
         deleteThemeButton.title = L10n.string("settings.button.deleteCurrentTheme")
         usesBackgroundColorButton.title = L10n.string("settings.checkbox.useBackgroundColor")
@@ -918,6 +1183,10 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
 
         if oldState.incrementalSearchPriority != newState.incrementalSearchPriority {
             userInfo[SettingsNotificationKey.incrementalSearchPriority] = newState.incrementalSearchPriority
+        }
+
+        if oldState.showsCommandPaletteButton != newState.showsCommandPaletteButton {
+            userInfo[SettingsNotificationKey.showsCommandPaletteButton] = newState.showsCommandPaletteButton
         }
 
         if oldState.usesAlternatingRowBackgrounds != newState.usesAlternatingRowBackgrounds {
@@ -1321,6 +1590,11 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             state.setToggle(.incrementalSearchPriority, isOn: incrementalSearchPriority)
         }
 
+        if let showsButton = notification.userInfo?[SettingsNotificationKey.showsCommandPaletteButton] as? Bool {
+            committedState.setToggle(.showCommandPaletteButton, isOn: showsButton)
+            state.setToggle(.showCommandPaletteButton, isOn: showsButton)
+        }
+
         if let showsPreviewPane = notification.userInfo?[SettingsNotificationKey.showsPreviewPane] as? Bool {
             committedState.setToggle(.showPreviewPane, isOn: showsPreviewPane)
             state.setToggle(.showPreviewPane, isOn: showsPreviewPane)
@@ -1513,7 +1787,13 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     }
 
     private var editorHeight: CGFloat {
-        if isPathTabSelected || isKeyBindingTabSelected {
+        if isKeyBindingTabSelected {
+            if isCapturingKeySearch { return searchedKeyStrokes.isEmpty ? 0 : 95 }
+            let count = focusedCommandID.map { state.keyBindingSet.sequences(for: $0).count } ?? 0
+            let detailHeight = CGFloat(min(max(count, 1), 3) * 28)
+            return 96 + detailHeight + (state.keyBindingSet.conflicts().isEmpty ? 0 : 20)
+        }
+        if isPathTabSelected {
             return 118
         }
         if isFileTypesTabSelected {
@@ -1538,7 +1818,8 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             return nil
         }
 
-        return CommandID.allCases[state.focusedItemIndex]
+        let commandID = CommandID.allCases[state.focusedItemIndex]
+        return dataSource.keyBindingCommandIDs.contains(commandID) ? commandID : nil
     }
 
     private func addPathFromEditor() {
@@ -1594,7 +1875,7 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
         } else if isFileTypesTabSelected {
             deleteSelectedFileTypeAssociation()
         } else if isKeyBindingTabSelected {
-            removeLastKeyBindingFromFocusedCommand()
+            removeSelectedKeyBinding()
         } else if isThemeTabSelected {
             deleteCurrentTheme()
         }
@@ -1605,11 +1886,225 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             return
         }
 
+        if isCapturingKeySearch { clearKeyBindingSearch(shouldRefresh: false) }
         recordingCommandID = commandID
         recordedKeyStrokes = []
         tableView.isRecordingKeyBinding = true
+        setCaptureInteractionActive(true)
+        render()
+        view.window?.makeFirstResponder(keyBindingCaptureView)
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard obj.object as? NSSearchField === keyBindingSearchField, !isRendering else { return }
+        searchedKeyStrokes = []
+        refreshKeyBindingResults()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard control === keyBindingSearchField else { return false }
+        switch selector {
+        case #selector(NSResponder.moveUp(_:)):
+            moveItemFocus(by: -1)
+        case #selector(NSResponder.moveDown(_:)):
+            moveItemFocus(by: 1)
+        case #selector(NSResponder.insertNewline(_:)):
+            view.window?.makeFirstResponder(tableView)
+        case #selector(NSResponder.cancelOperation(_:)):
+            clearKeyBindingSearch()
+        default:
+            return false
+        }
+        return true
+    }
+
+    private func matchingKeyBindingCommands() -> [CommandID] {
+        guard isKeyBindingTabSelected else { return CommandID.allCases }
+        if !searchedKeyStrokes.isEmpty {
+            let matches = Set(state.keyBindingSet.bindings(startingWith: searchedKeyStrokes).map { $0.commandID })
+            return CommandID.allCases.filter { matches.contains($0) }
+        }
+        let items = CommandID.allCases.map { commandID in
+            CommandPaletteCatalog.item(for: commandID,
+                                       bindings: state.keyBindingSet.sequences(for: commandID).map(\.displayText))
+        }
+        return CommandPaletteSearch.results(for: keyBindingSearchField.stringValue, in: items).map(\.commandID)
+    }
+
+    private func refreshKeyBindingResults() {
+        isRendering = true
+        defer { isRendering = false }
+        let previous = focusedCommandID
+        dataSource.keyBindingSet = state.keyBindingSet
+        dataSource.keyBindingCommandIDs = matchingKeyBindingCommands()
+        updateKeyBindingEmptyResult()
+        tableView.reloadData()
+        let selected = previous.flatMap { dataSource.keyBindingCommandIDs.firstIndex(of: $0) } ??
+            (dataSource.keyBindingCommandIDs.isEmpty ? nil : 0)
+        if let selected,
+           let commandIndex = CommandID.allCases.firstIndex(of: dataSource.keyBindingCommandIDs[selected]) {
+            state.focusItem(at: commandIndex)
+            tableView.selectRowIndexes(IndexSet(integer: selected), byExtendingSelection: false)
+            tableView.scrollRowToVisible(selected)
+        } else {
+            tableView.deselectAll(nil)
+        }
+        updateKeyBindingDetails()
+        keyBindingStatusField.stringValue = keyBindingStatusText()
+        updateKeyBindingModeUI()
+        keyBindingSearchButton.title = isCapturingKeySearch
+            ? L10n.string("settings.keybinding.keySearchRecording") : L10n.string("settings.button.searchByKey")
+        updateKeySearchCaptureDisplay()
+        enforceCaptureDisabledControls()
+    }
+
+    private func updateKeyBindingEmptyResult() {
+        guard isKeyBindingTabSelected, dataSource.keyBindingCommandIDs.isEmpty else {
+            dataSource.keyBindingEmptyResultMessage = nil
+            return
+        }
+        let canAssign = !searchedKeyStrokes.isEmpty
+            && state.keyBindingSet.canAssign(KeyBindingSequence(searchedKeyStrokes))
+        dataSource.keyBindingEmptyResultMessage = canAssign
+            ? L10n.string("settings.unassigned")
+            : L10n.string(searchedKeyStrokes.isEmpty
+                ? "settings.keybinding.noSearchResults" : "settings.keybinding.unavailableShort")
+    }
+
+    private func searchKeyBindingStroke(_ stroke: KeyStroke) {
+        searchedKeyStrokes.append(stroke)
+        refreshKeyBindingResults()
+    }
+
+    private func leaveKeySearchForSelectedCommand() {
+        let selectedCommand = dataSource.keyBindingCommandIDs.indices.contains(tableView.selectedRow)
+            ? dataSource.keyBindingCommandIDs[tableView.selectedRow] : nil
+        clearKeyBindingSearch(shouldRefresh: false)
+        if let selectedCommand,
+           let index = CommandID.allCases.firstIndex(of: selectedCommand) {
+            state.focusItem(at: index)
+        }
         render()
         view.window?.makeFirstResponder(tableView)
+    }
+
+    private func updateKeyBindingDetails() {
+        let selectedSequence = keyBindingDetailDataSource.sequences.indices.contains(keyBindingDetailTable.selectedRow)
+            ? keyBindingDetailDataSource.sequences[keyBindingDetailTable.selectedRow] : nil
+        let sequences = focusedCommandID.map { state.keyBindingSet.sequences(for: $0) } ?? []
+        if let commandID = focusedCommandID {
+            keyBindingDetailLabel.stringValue = L10n.format("settings.keybinding.detailsFor", commandID.localizedTitle)
+                + (sequences.isEmpty ? "  ·  " + L10n.string("settings.unassigned") : "")
+        } else {
+            keyBindingDetailLabel.stringValue = L10n.string("settings.keybinding.details")
+        }
+        keyBindingDetailDataSource.sequences = sequences
+        keyBindingDetailTable.reloadData()
+        let selectedIndex = selectedSequence.flatMap { sequences.firstIndex(of: $0) }
+            ?? (!searchedKeyStrokes.isEmpty ? sequences.firstIndex { $0.hasPrefix(searchedKeyStrokes) } : nil)
+            ?? (sequences.isEmpty ? nil : 0)
+        if let selectedIndex {
+            keyBindingDetailTable.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
+        } else {
+            keyBindingDetailTable.deselectAll(nil)
+        }
+    }
+
+    private func updateKeyBindingModeUI() {
+        let isFunctionMode = isKeyBindingTabSelected && !isCapturingKeySearch
+        let isKeyMode = isKeyBindingTabSelected && isCapturingKeySearch
+        keyBindingSearchRow.isHidden = !isFunctionMode
+        keyBindingSearchHeightConstraint?.constant = isFunctionMode ? 30 : 0
+        keyBindingDetailLabel.isHidden = !isFunctionMode && (!isKeyMode || searchedKeyStrokes.isEmpty)
+        keyBindingDetailScrollView.isHidden = !isFunctionMode
+        keyBindingButtonRow.isHidden = !isFunctionMode
+        keyBindingKeyActionRow.isHidden = true
+        keyBindingStatusField.isHidden = isKeyMode
+            ? searchedKeyStrokes.isEmpty
+            : (isFunctionMode ? state.keyBindingSet.conflicts().isEmpty : true)
+        let sequenceCount = focusedCommandID.map { state.keyBindingSet.sequences(for: $0).count } ?? 0
+        keyBindingDetailHeightConstraint?.constant = CGFloat(min(max(sequenceCount, 1), 3) * 28)
+        keyBindingMoreButton.item(at: 1)?.isEnabled = focusedCommandID != nil
+
+        if isKeyMode && !searchedKeyStrokes.isEmpty {
+            let sequence = KeyBindingSequence(searchedKeyStrokes)
+            keyBindingDetailLabel.stringValue = L10n.format("settings.keybinding.keyResultTitle", sequence.displayText)
+            let exact = state.keyBindingSet.bindings(startingWith: searchedKeyStrokes)
+                .filter { $0.sequence.strokes == searchedKeyStrokes }
+            if exact.count == 1 {
+                keyBindingStatusField.stringValue = exact[0].commandID.localizedTitle
+                keyBindingKeyAssignButton.title = L10n.string("settings.button.reassignKey")
+                keyBindingKeyRemoveButton.isHidden = false
+                keyBindingKeyActionRow.isHidden = false
+            } else if exact.count > 1 {
+                keyBindingStatusField.stringValue = L10n.string("settings.keybinding.duplicateAssignments")
+            } else if exact.isEmpty && state.keyBindingSet.canAssign(sequence) {
+                keyBindingStatusField.stringValue = L10n.string("settings.keybinding.keyUnassignedDetail")
+                keyBindingKeyAssignButton.title = L10n.string("settings.button.assignCommand")
+                keyBindingKeyRemoveButton.isHidden = true
+                keyBindingKeyActionRow.isHidden = false
+            } else if !dataSource.keyBindingCommandIDs.isEmpty {
+                keyBindingStatusField.stringValue = L10n.string("settings.keybinding.keyPrefixDetail")
+            } else {
+                keyBindingStatusField.stringValue = L10n.string("settings.keybinding.captureUnavailable")
+            }
+        }
+        pathEditorHeightConstraint?.constant = editorHeight
+    }
+
+    private func removeSelectedKeyBinding() {
+        removeKeyBindingSequence(at: keyBindingDetailTable.selectedRow)
+    }
+
+    private func removeKeyBindingSequence(at index: Int) {
+        guard let commandID = focusedCommandID,
+              keyBindingDetailDataSource.sequences.indices.contains(index),
+              !isCapturingKeySearch else { return }
+        state.removeKeyBindingSequence(at: index, from: commandID)
+        cancelRecordedKeyBinding()
+        refreshKeyBindingResults()
+    }
+
+    private func presentKeyBindingAssignment(for sequence: KeyBindingSequence, replacing source: CommandID?) {
+        guard let window = view.window else { return }
+        let picker = KeyBindingAssignmentPicker(excluding: source, bindings: state.keyBindingSet)
+        let alert = NSAlert()
+        alert.messageText = L10n.format("settings.keybinding.assignmentTitle", sequence.displayText)
+        alert.informativeText = L10n.string("settings.keybinding.assignmentMessage")
+        alert.accessoryView = picker.view
+        let assignButton = alert.addButton(withTitle: L10n.string("settings.button.assignCommandConfirm"))
+        alert.addButton(withTitle: L10n.string("settings.button.cancel"))
+        picker.onCommit = { [weak assignButton] in assignButton?.performClick(nil) }
+        picker.onCancel = { [weak alert] in alert?.buttons.last?.performClick(nil) }
+        picker.onSelectionChange = { [weak assignButton] hasSelection in
+            assignButton?.isEnabled = hasSelection
+        }
+        assignButton.isEnabled = picker.selectedCommandID != nil
+        alert.window.initialFirstResponder = picker.searchField
+        alert.beginSheetModal(for: window) { [weak self, picker] response in
+            guard let self else { return }
+            guard response == .alertFirstButtonReturn else {
+                if self.isCapturingKeySearch {
+                    self.view.window?.makeFirstResponder(self.keyBindingCaptureView)
+                }
+                return
+            }
+            guard let destination = picker.selectedCommandID else {
+                return
+            }
+            var proposed = self.state.keyBindingSet
+            guard proposed.assignSequence(sequence, to: destination, replacing: source) else {
+                self.showErrorAlert(title: L10n.string("settings.alert.keyBindingConflicts.title"),
+                                    message: L10n.string("settings.keybinding.assignmentConflict"))
+                return
+            }
+            self.state.setKeyBindingSet(proposed)
+            self.clearKeyBindingSearch(shouldRefresh: false)
+            if let index = CommandID.allCases.firstIndex(of: destination) {
+                self.state.focusItem(at: index)
+            }
+            self.render()
+        }
     }
 
     private func recordKeyBindingStroke(_ stroke: KeyStroke) {
@@ -1633,24 +2128,26 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
     }
 
     private func cancelRecordedKeyBinding() {
+        let wasRecording = recordingCommandID != nil
         recordingCommandID = nil
         recordedKeyStrokes = []
         tableView.isRecordingKeyBinding = false
+        if wasRecording { setCaptureInteractionActive(false) }
+        if !isCapturingKeySearch {
+            keyBindingCaptureView.isHidden = true
+            keyBindingCaptureHeightConstraint?.constant = 0
+        }
     }
 
-    private func removeLastKeyBindingFromFocusedCommand() {
-        guard let commandID = focusedCommandID else {
-            return
-        }
-
-        let sequences = state.keyBindingSet.sequences(for: commandID)
-        guard !sequences.isEmpty else {
-            return
-        }
-
-        state.removeKeyBindingSequence(at: sequences.count - 1, from: commandID)
-        cancelRecordedKeyBinding()
-        render()
+    private func updateRecordingCaptureDisplay() {
+        guard let commandID = recordingCommandID else { return }
+        keyBindingCaptureView.isHidden = false
+        keyBindingCaptureHeightConstraint?.constant = 112
+        keyBindingCaptureView.update(
+            strokes: recordedKeyStrokes,
+            title: L10n.format("settings.keybinding.recordCaptureTitle", commandID.localizedTitle),
+            status: L10n.string("settings.keybinding.recordCaptureHelp")
+        )
     }
 
     private func resetFocusedKeyBindingToDefault() {
@@ -2013,6 +2510,24 @@ private final class SettingsViewController: NSViewController, NSWindowDelegate {
             return L10n.format("settings.keybinding.recording", commandID.localizedTitle, displaySequence)
         }
 
+        if !searchedKeyStrokes.isEmpty || isCapturingKeySearch {
+            let sequence = KeyBindingSequence(searchedKeyStrokes).displayText
+            let displaySequence = sequence.isEmpty ? L10n.string("settings.keybinding.emptyInput") : sequence
+            if !isCapturingKeySearch && state.keyBindingSet.canAssign(KeyBindingSequence(searchedKeyStrokes)) {
+                return L10n.format("settings.keybinding.unassignedKeyStatus", displaySequence)
+            }
+            if !isCapturingKeySearch {
+                let exact = state.keyBindingSet.bindings(startingWith: searchedKeyStrokes)
+                    .contains { $0.sequence.strokes == searchedKeyStrokes }
+                if !exact {
+                    return L10n.format("settings.keybinding.unavailableKeyStatus", displaySequence)
+                }
+            }
+            return L10n.format(isCapturingKeySearch
+                ? "settings.keybinding.keySearchRecordingStatus" : "settings.keybinding.keySearchStatus",
+                displaySequence)
+        }
+
         let conflicts = state.keyBindingSet.conflicts()
         guard !conflicts.isEmpty else {
             return L10n.string("settings.keybinding.noConflicts")
@@ -2278,6 +2793,288 @@ private final class SettingsTableView: NSTableView {
     }
 }
 
+private final class KeyBindingCaptureView: NSView {
+    var onStroke: ((KeyStroke) -> Void)?
+    var onFinish: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    private let titleField = NSTextField(labelWithString: L10n.string("settings.keybinding.captureTitle"))
+    private let sequenceField = NSTextField(labelWithString: "")
+    private let helpField = NSTextField(labelWithString: L10n.string("settings.keybinding.captureHelp"))
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.13).cgColor
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.borderWidth = 2
+        layer?.cornerRadius = 9
+        titleField.font = .systemFont(ofSize: 14, weight: .semibold)
+        sequenceField.font = .monospacedSystemFont(ofSize: 34, weight: .bold)
+        sequenceField.textColor = .controlAccentColor
+        sequenceField.alignment = .left
+        sequenceField.lineBreakMode = .byTruncatingMiddle
+        sequenceField.maximumNumberOfLines = 1
+        helpField.font = .systemFont(ofSize: 13)
+        helpField.textColor = .labelColor
+        for field in [titleField, sequenceField, helpField] {
+            field.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(field)
+        }
+        NSLayoutConstraint.activate([
+            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            titleField.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            sequenceField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
+            sequenceField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            sequenceField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 1),
+            helpField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
+            helpField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            helpField.topAnchor.constraint(equalTo: sequenceField.bottomAnchor, constant: 1)
+        ])
+        update(strokes: [], title: L10n.string("settings.keybinding.captureTitle"),
+               status: L10n.string("settings.keybinding.captureHelp"))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func update(strokes: [KeyStroke], title: String, status: String) {
+        titleField.stringValue = title
+        helpField.stringValue = status
+        sequenceField.stringValue = strokes.isEmpty
+            ? L10n.string("settings.keybinding.captureWaiting")
+            : KeyBindingSequence(strokes).displayText
+        setAccessibilityLabel("\(titleField.stringValue): \(sequenceField.stringValue). \(status)")
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let stroke = KeyStroke(event: event), !stroke.modifiers.isEmpty {
+            onStroke?(stroke)
+            return
+        }
+        switch event.keyCode {
+        case SettingsKeyCode.returnKey, SettingsKeyCode.keypadEnter:
+            onFinish?()
+        case SettingsKeyCode.escape:
+            onCancel?()
+        default:
+            if let stroke = KeyStroke(event: event) { onStroke?(stroke) }
+        }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard !isHidden else { return false }
+        keyDown(with: event)
+        return true
+    }
+}
+
+private final class KeyBindingDetailDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    var sequences: [KeyBindingSequence] = []
+    var onRemoveSequence: ((Int) -> Void)?
+
+    func numberOfRows(in tableView: NSTableView) -> Int { sequences.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let identifier = NSUserInterfaceItemIdentifier("keyBindingDetail")
+        let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView ?? NSTableCellView()
+        let field = cell.textField ?? NSTextField(labelWithString: "")
+        field.stringValue = sequences[row].displayText
+        field.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        field.translatesAutoresizingMaskIntoConstraints = false
+        let removeButton = cell.subviews.compactMap { $0 as? NSButton }.first ?? NSButton()
+        removeButton.title = "−"
+        removeButton.toolTip = L10n.string("settings.button.removeBinding")
+        removeButton.setAccessibilityLabel(L10n.format("settings.keybinding.removeSequence", sequences[row].displayText))
+        removeButton.bezelStyle = .smallSquare
+        removeButton.target = self
+        removeButton.action = #selector(removeSequenceClicked(_:))
+        removeButton.tag = row
+        removeButton.translatesAutoresizingMaskIntoConstraints = false
+        if field.superview == nil {
+            cell.addSubview(field)
+            cell.addSubview(removeButton)
+            cell.textField = field
+            cell.identifier = identifier
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+                field.trailingAnchor.constraint(lessThanOrEqualTo: removeButton.leadingAnchor, constant: -8),
+                field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                removeButton.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+                removeButton.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                removeButton.widthAnchor.constraint(equalToConstant: 24)
+            ])
+        }
+        return cell
+    }
+
+    @objc private func removeSequenceClicked(_ sender: NSButton) {
+        onRemoveSequence?(sender.tag)
+    }
+}
+
+final class KeyBindingAssignmentTableView: NSTableView {
+    var onCommit: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case SettingsKeyCode.returnKey, SettingsKeyCode.keypadEnter:
+            onCommit?()
+        case SettingsKeyCode.escape:
+            onCancel?()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+}
+
+final class KeyBindingAssignmentPicker: NSObject, NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
+    let view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 300))
+    let searchField = NSSearchField()
+    let tableView = KeyBindingAssignmentTableView()
+    var onCommit: (() -> Void)?
+    var onCancel: (() -> Void)?
+    var onSelectionChange: ((Bool) -> Void)?
+
+    private let allItems: [CommandPaletteItem]
+    private var results: [CommandPaletteItem] = []
+
+    var selectedCommandID: CommandID? {
+        guard results.indices.contains(tableView.selectedRow) else { return nil }
+        return results[tableView.selectedRow].commandID
+    }
+
+    init(excluding source: CommandID?, bindings: KeyBindingSet) {
+        allItems = CommandID.allCases.filter { $0 != source }.map { commandID in
+            CommandPaletteCatalog.item(for: commandID, bindings: bindings.sequences(for: commandID).map(\.displayText))
+        }
+        super.init()
+        searchField.placeholderString = L10n.string("settings.keybinding.searchPlaceholder")
+        searchField.delegate = self
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.setAccessibilityLabel(L10n.string("settings.keybinding.searchPlaceholder"))
+        tableView.headerView = nil
+        tableView.rowHeight = 44
+        tableView.allowsEmptySelection = true
+        tableView.delegate = self
+        tableView.dataSource = self
+        tableView.onCommit = { [weak self] in self?.onCommit?() }
+        tableView.onCancel = { [weak self] in self?.onCancel?() }
+        tableView.target = self
+        tableView.doubleAction = #selector(activateSelection(_:))
+        let commandColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("command"))
+        commandColumn.width = 310
+        tableView.addTableColumn(commandColumn)
+        let bindingColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("binding"))
+        bindingColumn.width = 150
+        tableView.addTableColumn(bindingColumn)
+        let scrollView = NSScrollView()
+        scrollView.documentView = tableView
+        scrollView.hasVerticalScroller = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(searchField)
+        view.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            searchField.topAnchor.constraint(equalTo: view.topAnchor),
+            searchField.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            searchField.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 10),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        searchField.nextKeyView = tableView
+        tableView.nextKeyView = searchField
+        refreshResults()
+    }
+
+    func controlTextDidChange(_ obj: Notification) { refreshResults() }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.moveUp(_:)):
+            moveSelection(by: -1)
+        case #selector(NSResponder.moveDown(_:)):
+            moveSelection(by: 1)
+        case #selector(NSResponder.insertNewline(_:)):
+            onCommit?()
+        case #selector(NSResponder.cancelOperation(_:)):
+            onCancel?()
+        default:
+            return false
+        }
+        return true
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { results.count }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        onSelectionChange?(selectedCommandID != nil)
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let item = results[row]
+        if tableColumn?.identifier.rawValue == "binding" {
+            let field = NSTextField(labelWithString: item.bindings.isEmpty
+                ? L10n.string("commandPalette.unassigned") : item.bindings.joined(separator: " / "))
+            field.lineBreakMode = .byTruncatingTail
+            field.toolTip = field.stringValue
+            return field
+        }
+        let cell = NSView()
+        let title = NSTextField(labelWithString: item.title)
+        title.font = .systemFont(ofSize: 13, weight: .medium)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        let english = CommandPaletteSearch.englishMatchExplanation(for: searchField.stringValue, in: item)
+        let descriptions = [item.englishTitle, item.category].compactMap { $0 } + english.filter {
+            $0 != item.englishTitle && $0 != item.category
+        }
+        let detail = NSTextField(labelWithString: descriptions.joined(separator: "  ·  "))
+        detail.font = .systemFont(ofSize: 11)
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byTruncatingTail
+        detail.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(title)
+        cell.addSubview(detail)
+        NSLayoutConstraint.activate([
+            title.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+            title.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+            title.topAnchor.constraint(equalTo: cell.topAnchor, constant: 4),
+            detail.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            detail.trailingAnchor.constraint(equalTo: title.trailingAnchor),
+            detail.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 1)
+        ])
+        return cell
+    }
+
+    @objc private func activateSelection(_ sender: NSTableView) {
+        guard selectedCommandID != nil else { return }
+        onCommit?()
+    }
+
+    private func moveSelection(by delta: Int) {
+        guard !results.isEmpty else { return }
+        let next = max(0, min(results.count - 1, tableView.selectedRow + delta))
+        tableView.selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
+        tableView.scrollRowToVisible(next)
+    }
+
+    private func refreshResults() {
+        results = CommandPaletteSearch.results(for: searchField.stringValue, in: allItems)
+        tableView.reloadData()
+        if !results.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView.scrollRowToVisible(0)
+        } else {
+            tableView.deselectAll(nil)
+        }
+        onSelectionChange?(selectedCommandID != nil)
+    }
+}
+
 private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     enum Column {
         static let setting = NSUserInterfaceItemIdentifier("setting")
@@ -2298,8 +3095,11 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     var jumpPathEntries: [JumpPathEntry] = []
     var fileTypeAssociations: [FileTypeAssociation] = []
     var keyBindingSet: KeyBindingSet = .default
+    var keyBindingCommandIDs: [CommandID] = CommandID.allCases
+    var keyBindingEmptyResultMessage: String?
     var displayTheme: DisplayTheme = .light
     var incrementalSearchPriority = false
+    var showsCommandPaletteButton = true
     var showsPreviewPane = false
     var showsHiddenFiles = false
     var usesAlternatingRowBackgrounds = false
@@ -2341,7 +3141,8 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         case .fileTypes:
             return fileTypeAssociations.count
         case .keyBindings:
-            return CommandID.allCases.count
+            return keyBindingCommandIDs.isEmpty && keyBindingEmptyResultMessage != nil
+                ? 1 : keyBindingCommandIDs.count
         case .appearance:
             return DisplayColorRole.allCases.count
         }
@@ -2353,6 +3154,9 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         }
 
         if mode == .keyBindings {
+            if keyBindingCommandIDs.isEmpty {
+                return keyBindingEmptyResultCell(tableView: tableView, tableColumn: tableColumn)
+            }
             return keyBindingCell(tableView: tableView, tableColumn: tableColumn, row: row)
         }
         if mode == .appearance {
@@ -2645,6 +3449,26 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         return cell
     }
 
+    private func keyBindingEmptyResultCell(tableView: NSTableView, tableColumn: NSTableColumn?) -> NSView {
+        let identifier = NSUserInterfaceItemIdentifier("keyBindingEmpty.\(tableColumn?.identifier.rawValue ?? "unknown")")
+        let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView ?? NSTableCellView()
+        let field = cell.textField ?? NSTextField(labelWithString: "")
+        field.stringValue = tableColumn?.identifier == Column.command ? keyBindingEmptyResultMessage ?? "" : ""
+        field.font = .systemFont(ofSize: 13, weight: .medium)
+        field.translatesAutoresizingMaskIntoConstraints = false
+        if field.superview == nil {
+            cell.addSubview(field)
+            cell.textField = field
+            cell.identifier = identifier
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+                field.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -8),
+                field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+            ])
+        }
+        return cell
+    }
+
     @objc private func toggleCheckbox(_ sender: NSButton) {
         guard let tableView = sender.enclosingTableView else {
             return
@@ -2735,10 +3559,16 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
         onSelectionChange?(tableView.selectedRow)
     }
 
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        !(mode == .keyBindings && keyBindingCommandIDs.isEmpty)
+    }
+
     private func checkboxState(for item: SettingsItem) -> NSControl.StateValue {
         switch item.toggleID {
         case .incrementalSearchPriority:
             return incrementalSearchPriority ? .on : .off
+        case .showCommandPaletteButton:
+            return showsCommandPaletteButton ? .on : .off
         case .showPreviewPane:
             return showsPreviewPane ? .on : .off
         case .showHiddenFiles:
@@ -2989,7 +3819,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
     }
 
     private func keyBindingCellTitle(for row: Int, column: NSUserInterfaceItemIdentifier?) -> String {
-        let commandID = CommandID.allCases[row]
+        let commandID = keyBindingCommandIDs[row]
         switch column {
         case Column.category:
             return commandID.category.localizedTitle
@@ -3010,7 +3840,7 @@ private final class SettingsDataSource: NSObject, NSTableViewDataSource, NSTable
             $0.firstCommandID == commandID || $0.secondCommandID == commandID
         }
         guard !conflicts.isEmpty else {
-            return L10n.string("settings.keybinding.status.ok")
+            return ""
         }
 
         let labels = conflicts.map { conflict -> String in

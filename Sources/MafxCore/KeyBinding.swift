@@ -145,6 +145,7 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
     case extractSelectedArchive
     case createArchiveFromMarkedItems
     case showContextMenu
+    case showCommandPalette
     case syncActivePaneToOpposite
     case syncOppositePaneToActive
     case showJumpPathList
@@ -273,6 +274,8 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
             return "マーク済み項目を ZIP に圧縮"
         case .showContextMenu:
             return "コンテキストメニューを表示"
+        case .showCommandPalette:
+            return "コマンドパレットを表示"
         case .syncActivePaneToOpposite:
             return "アクティブペインを逆窓のパスに同期"
         case .syncOppositePaneToActive:
@@ -336,7 +339,7 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
 
     public var executionScope: CommandExecutionScope {
         switch self {
-        case .togglePreviewPane, .openSettings, .quitApplication,
+        case .togglePreviewPane, .openSettings, .quitApplication, .showCommandPalette,
              .toggleHiddenFiles, .increaseFileListFontSize,
              .decreaseFileListFontSize, .resetFileListFontSize:
             return .application
@@ -372,7 +375,7 @@ public enum CommandID: String, Codable, Equatable, CaseIterable {
              .renameSelectedItem, .copySelectedItemWithNewName, .browseSelectedArchive,
              .extractSelectedArchive, .createArchiveFromMarkedItems, .createFolder:
             return .fileOperation
-        case .showContextMenu:
+        case .showContextMenu, .showCommandPalette:
             return .application
         case .beginFileMask, .beginIncrementalSearch:
             return .search
@@ -507,6 +510,10 @@ public struct KeyBindingSet: Codable, Equatable {
         KeyBindingEntry(commandID: .showContextMenu, sequences: [
             .init(.init(key: "/"))
         ]),
+        KeyBindingEntry(commandID: .showCommandPalette, sequences: [
+            .init(.init(key: "?", modifiers: .shift)),
+            .init(.init(key: "P", modifiers: [.shift, .command]))
+        ]),
         KeyBindingEntry(commandID: .syncActivePaneToOpposite, sequences: [.init(.init(key: "O"))]),
         KeyBindingEntry(commandID: .syncOppositePaneToActive, sequences: [.init(.init(key: "O", modifiers: .shift))]),
         KeyBindingEntry(commandID: .showJumpPathList, sequences: [.init(.init(key: "J"))]),
@@ -582,6 +589,65 @@ public struct KeyBindingSet: Codable, Equatable {
         setSequences(current, for: commandID, context: context)
     }
 
+    public func canAssign(_ sequence: KeyBindingSequence, context: KeyBindingContext = .mainPane) -> Bool {
+        guard !sequence.strokes.isEmpty,
+              context != .mainPane || sequence != KeyBindingSequence(KeyStroke(key: "Return")) else {
+            return false
+        }
+        return !entries.contains { entry in
+            entry.context == context && entry.sequences.contains { existing in
+                existing.hasPrefix(sequence.strokes) || sequence.hasPrefix(existing.strokes)
+            }
+        }
+    }
+
+    /// 未割り当てのキー列を追加するか、元の機能から別の機能へ割り当て直す。
+    /// 衝突する変更は何も反映しない。
+    @discardableResult
+    public mutating func assignSequence(
+        _ sequence: KeyBindingSequence,
+        to destination: CommandID,
+        replacing source: CommandID? = nil,
+        context: KeyBindingContext = .mainPane
+    ) -> Bool {
+        guard !sequence.strokes.isEmpty,
+              context != .mainPane || sequence != KeyBindingSequence(KeyStroke(key: "Return")) else {
+            return false
+        }
+        var proposed = self
+        if let source {
+            guard source != destination,
+                  let sourceIndex = sequences(for: source, context: context).firstIndex(of: sequence) else {
+                return false
+            }
+            proposed.removeSequence(at: sourceIndex, from: source, context: context)
+        } else {
+            guard canAssign(sequence, context: context) else { return false }
+        }
+        proposed.addSequence(sequence, to: destination, context: context)
+        guard proposed.conflicts(context: context).isEmpty else { return false }
+        self = proposed
+        return true
+    }
+
+    /// キー列を元の機能から別の機能へ移す。衝突する移動は何も変更しない。
+    @discardableResult
+    public mutating func moveSequence(
+        _ sequence: KeyBindingSequence,
+        from source: CommandID,
+        to destination: CommandID,
+        context: KeyBindingContext = .mainPane
+    ) -> Bool {
+        assignSequence(sequence, to: destination, replacing: source, context: context)
+    }
+
+    public func bindings(startingWith strokes: [KeyStroke], context: KeyBindingContext = .mainPane)
+        -> [(commandID: CommandID, sequence: KeyBindingSequence)] {
+        entries.filter { $0.context == context }.flatMap { entry in
+            entry.sequences.filter { $0.hasPrefix(strokes) }.map { (entry.commandID, $0) }
+        }
+    }
+
     public mutating func resetCommandToDefault(_ commandID: CommandID, context: KeyBindingContext = .mainPane) {
         setSequences(KeyBindingSet.default.sequences(for: commandID, context: context), for: commandID, context: context)
     }
@@ -597,7 +663,19 @@ public struct KeyBindingSet: Codable, Equatable {
                 $0.commandID == defaultEntry.commandID && $0.context == defaultEntry.context
             }
             if !hasEntry {
-                merged.entries.append(defaultEntry)
+                if defaultEntry.commandID == .showCommandPalette {
+                    var availableEntry = defaultEntry
+                    availableEntry.sequences.removeAll { candidate in
+                        merged.entries.contains { entry in
+                            entry.context == defaultEntry.context && entry.sequences.contains { existing in
+                                existing.hasPrefix(candidate.strokes) || candidate.hasPrefix(existing.strokes)
+                            }
+                        }
+                    }
+                    merged.entries.append(availableEntry)
+                } else {
+                    merged.entries.append(defaultEntry)
+                }
             }
         }
         return merged
@@ -617,6 +695,23 @@ public struct KeyBindingSet: Codable, Equatable {
     public func conflicts(context: KeyBindingContext = .mainPane) -> [KeyBindingConflict] {
         let contextEntries = entries.filter { $0.context == context }
         var conflicts: [KeyBindingConflict] = []
+
+        for entry in contextEntries {
+            for firstIndex in entry.sequences.indices {
+                for secondIndex in entry.sequences.indices where secondIndex > firstIndex {
+                    let first = entry.sequences[firstIndex]
+                    let second = entry.sequences[secondIndex]
+                    if first == second {
+                        conflicts.append(KeyBindingConflict(kind: .duplicate, firstCommandID: entry.commandID,
+                                                            secondCommandID: entry.commandID, sequence: first))
+                    } else if first.hasPrefix(second.strokes) || second.hasPrefix(first.strokes) {
+                        let shorter = first.strokes.count < second.strokes.count ? first : second
+                        conflicts.append(KeyBindingConflict(kind: .prefix, firstCommandID: entry.commandID,
+                                                            secondCommandID: entry.commandID, sequence: shorter))
+                    }
+                }
+            }
+        }
 
         for firstEntryIndex in contextEntries.indices {
             for secondEntryIndex in contextEntries.indices where secondEntryIndex > firstEntryIndex {

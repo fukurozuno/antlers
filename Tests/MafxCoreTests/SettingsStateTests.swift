@@ -715,6 +715,16 @@ final class SettingsStateTests: XCTestCase {
         XCTAssertEqual(state.keyBindingSet, .default)
     }
 
+    func testCommandPaletteButtonSettingCanBeToggled() {
+        var state = SettingsState()
+        XCTAssertTrue(state.isToggleOn(.showCommandPaletteButton))
+        state.setToggle(.showCommandPaletteButton, isOn: false)
+        XCTAssertFalse(state.showsCommandPaletteButton)
+        var settings = AppSettings()
+        settings.applySettingsState(state)
+        XCTAssertFalse(settings.showsCommandPaletteButton)
+    }
+
     func testSettingsStateUpdatesAndCyclesReturnKeyBehavior() {
         var state = SettingsState()
 

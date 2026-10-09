@@ -24,4 +24,15 @@ final class KeyBindingApplicationValidationTests: XCTestCase {
 
         XCTAssertFalse(canApplyKeyBindingSet(keyBindingSet))
     }
+
+    func testPreventsApplyingPrefixConflictWithinOneCommand() {
+        let keyBindingSet = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [
+                .init(.init(key: "S")),
+                .init([.init(key: "S"), .init(key: "F")])
+            ])
+        ])
+
+        XCTAssertFalse(canApplyKeyBindingSet(keyBindingSet))
+    }
 }

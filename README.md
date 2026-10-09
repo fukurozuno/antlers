@@ -1,11 +1,11 @@
 # Antlers
 
-バージョン: `0.6.0`
+バージョン: `0.7.0`
 
 Antlers は、macOS 向けのキーボードファーストな左右 2 ペイン型ファイラーです。
 キーボードによる素早い移動と、安全なファイル操作を重視しています。
 
-Version: `0.6.0`
+Version: `0.7.0`
 
 Antlers is a keyboard-first, dual-pane file manager for macOS.
 It focuses on fast navigation and safe file operations.
@@ -28,6 +28,7 @@ It focuses on fast navigation and safe file operations.
 - 複数選択、ワイルドカードマーク、ファイルマスク
 - ファイルのプレビュー、タグ検索、隠しファイル表示
 - 設定画面からのキーバインド変更
+- コマンドパレットで機能名やキーから操作を検索・実行
 - 複数ストローク入力中のキー候補パネル表示
 - 上書きや破壊的操作に対する確認
 
@@ -91,6 +92,8 @@ macOS の `.app` バンドルを作成するには、次を実行します。`bu
 
 ### リリースノート / Release notes
 
+- [V0.7.0 リリースノート](docs/ja/releases/v0.7.0.md)
+- [V0.7.0 Release notes](docs/en/releases/v0.7.0.md)
 - [V0.6.0 リリースノート](docs/ja/releases/v0.6.0.md)
 - [V0.6.0 Release notes](docs/en/releases/v0.6.0.md)
 - [V0.3.0 リリースノート](docs/ja/releases/v0.3.0.md)
@@ -126,6 +129,7 @@ Gatekeeper を無効化する操作は推奨しません。
 - タグ検索とタグの設定・解除
 - ペイン情報表示、メッセージ表示
 - 設定画面、キーバインドの記録・変更
+- コマンドパレットと、キーからの割り当て検索・変更
 
 ### 主要キーバインド
 
@@ -150,10 +154,12 @@ Gatekeeper を無効化する操作は推奨しません。
 | `Shift+J` | パス入力欄を表示する |
 | `S` | ソート指定を開始する |
 | `O` / `Shift+O` | 左右ペインのパスを同期する |
+| `Shift+?` / `Command+Shift+P` | コマンドパレットを開く |
 | `Z` / `Command+,` | 設定ウィンドウを開く |
 | `Q` | アプリケーションを終了する |
 
 キーバインドは設定画面から変更できます。複数ストロークのキーバインドにも対応しています。
+コマンドパレットはウィンドウ上部の `?` ボタンやヘルプメニューからも開けます。
 
 デフォルトキーバインドの完全な一覧は [KEYBINDINGS.md](KEYBINDINGS.md) を参照してください。
 
@@ -193,6 +199,7 @@ Antlers は MIT License の下で公開しています。詳細は [LICENSE](LIC
 - Multiple selection, wildcard marking, and file masks
 - File preview, tag search, and hidden-file visibility
 - Configurable keybindings
+- Command palette for finding and running actions by name or key
 - Candidate panel for multi-stroke key sequences
 - Confirmation for overwrites and destructive operations
 
@@ -280,6 +287,7 @@ Disabling Gatekeeper is not recommended.
 - Hidden files, file icons, and color tag display
 - Tag search and tag editing
 - Pane information, messages, and configurable keybindings
+- Command palette and key-based shortcut search and reassignment
 
 ### Keybindings
 
@@ -304,10 +312,12 @@ Disabling Gatekeeper is not recommended.
 | `Shift+J` | Show direct path input |
 | `S` | Start sort selection |
 | `O` / `Shift+O` | Synchronize pane paths |
+| `Shift+?` / `Command+Shift+P` | Open the command palette |
 | `Z` / `Command+,` | Open Settings |
 | `Q` | Quit the application |
 
 Keybindings can be changed in Settings, including multi-stroke bindings.
+You can also open the command palette from the `?` title-bar button or the Help menu.
 
 See [KEYBINDINGS.md](KEYBINDINGS.md) for the complete list of default keybindings.
 

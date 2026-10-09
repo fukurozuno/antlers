@@ -19,6 +19,7 @@ Antlers is a keyboard-first, dual-pane file manager for macOS. Use the left and 
 
 ## Release notes
 
+- [V0.7.0](releases/v0.7.0.md)
 - [V0.6.0](releases/v0.6.0.md)
 - [V0.5.0](releases/v0.5.0.md)
 - [V0.4.0](releases/v0.4.0.md)

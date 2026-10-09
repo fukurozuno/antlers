@@ -19,6 +19,8 @@ Incremental search can use prefix, contains, or exact matching.
 
 Enable “Incremental search priority” to use unmodified letters, numbers, and symbols as incremental-search input first. Disable it if you want those keys to execute regular keybindings. It is disabled by default.
 
+**Show command palette button** controls the `?` button in the title bar. It is on by default. When hidden, you can still open the palette with its shortcut or from the Help menu.
+
 Enable “Treat ZIP files as directories” to browse a selected ZIP file inside the pane with `Enter`. When disabled, ZIP files are treated like regular files. It is enabled by default.
 
 Enable **Show preview pane** to show an auxiliary preview that follows the selected item. Choose **Preview pane position** to place it on the left or right. A width changed by dragging or in preview mode is restored at the next launch.

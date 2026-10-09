@@ -37,4 +37,11 @@ final class AppMenuTests: XCTestCase {
         XCTAssertEqual(editMenu?.item(at: 4)?.keyEquivalentModifierMask, .command)
         XCTAssertNil(editMenu?.item(at: 4)?.target)
     }
+
+    func testHelpMenuOpensCommandPalette() {
+        let delegate = AppDelegate()
+        let helpMenu = delegate.makeMainMenu().item(at: 2)?.submenu
+        XCTAssertEqual(helpMenu?.item(at: 0)?.action, #selector(AppDelegate.showCommandPalette(_:)))
+        XCTAssertTrue(helpMenu?.item(at: 0)?.target === delegate)
+    }
 }

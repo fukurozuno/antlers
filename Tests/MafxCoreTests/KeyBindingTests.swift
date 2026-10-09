@@ -35,6 +35,15 @@ final class KeyBindingTests: XCTestCase {
         XCTAssertEqual(KeyBindingSet.default.sequences(for: .showContextMenu), [.init(.init(key: "/"))])
     }
 
+    func testDefaultCommandPaletteShortcutsDoNotConflict() {
+        let resolver = KeymapResolver(keyBindingSet: .default)
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "?", modifiers: .shift)),
+                       .matched(.showCommandPalette))
+        XCTAssertEqual(resolver.resolve(KeyStroke(key: "P", modifiers: [.shift, .command])),
+                       .matched(.showCommandPalette))
+        XCTAssertTrue(KeyBindingSet.default.conflicts().isEmpty)
+    }
+
     func testSelectedItemOperationCommandsHaveNoDefaultKeyBindings() {
         XCTAssertEqual(KeyBindingSet.default.sequences(for: .copySelectedItem), [])
         XCTAssertEqual(KeyBindingSet.default.sequences(for: .moveSelectedItem), [])
@@ -381,6 +390,96 @@ final class KeyBindingTests: XCTestCase {
                 sequence: KeyBindingSequence(KeyStroke(key: "S"))
             )
         ])
+    }
+
+    func testKeyBindingSetDetectsPrefixConflictWithinOneCommand() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [
+                .init(.init(key: "S")),
+                .init([.init(key: "S"), .init(key: "F")])
+            ])
+        ])
+
+        XCTAssertEqual(set.conflicts(), [
+            KeyBindingConflict(kind: .prefix, firstCommandID: .copyMarkedItems,
+                               secondCommandID: .copyMarkedItems,
+                               sequence: .init(.init(key: "S")))
+        ])
+    }
+
+    func testKeyBindingSetDetectsDuplicateWithinOneCommand() {
+        let sequence = KeyBindingSequence(KeyStroke(key: "C"))
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [sequence, sequence])
+        ])
+
+        XCTAssertEqual(set.conflicts(), [
+            KeyBindingConflict(kind: .duplicate, firstCommandID: .copyMarkedItems,
+                               secondCommandID: .copyMarkedItems, sequence: sequence)
+        ])
+    }
+
+    func testKeyBindingSetMovesOnlySelectedSequence() {
+        var set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [
+                .init(.init(key: "C")), .init(.init(key: "V"))
+            ]),
+            KeyBindingEntry(commandID: .moveMarkedItems, sequences: [])
+        ])
+
+        XCTAssertTrue(set.moveSequence(.init(.init(key: "C")), from: .copyMarkedItems, to: .moveMarkedItems))
+        XCTAssertEqual(set.sequences(for: .copyMarkedItems), [.init(.init(key: "V"))])
+        XCTAssertEqual(set.sequences(for: .moveMarkedItems), [.init(.init(key: "C"))])
+    }
+
+    func testKeyBindingSetAssignsPreviouslyUnassignedSequence() {
+        var set = KeyBindingSet.default
+        let sequence = KeyBindingSequence(KeyStroke(key: "U", modifiers: .control))
+
+        XCTAssertTrue(set.canAssign(sequence))
+        XCTAssertTrue(set.assignSequence(sequence, to: .copySelectedItem))
+        XCTAssertFalse(set.canAssign(sequence))
+        XCTAssertEqual(set.sequences(for: .copySelectedItem), [sequence])
+        XCTAssertEqual(set.bindings(startingWith: sequence.strokes).filter { $0.sequence == sequence }.count, 1)
+    }
+
+    func testKeyBindingSetRejectsUnassignedPrefixConflictWithoutChangingState() {
+        var set = KeyBindingSet.default
+        let original = set
+
+        XCTAssertFalse(set.canAssign(.init(.init(key: "S"))))
+        XCTAssertFalse(set.assignSequence(.init(.init(key: "S")), to: .copySelectedItem))
+        XCTAssertEqual(set, original)
+    }
+
+    func testKeyBindingSetRejectsReservedReturnAssignment() {
+        var set = KeyBindingSet.default
+        let original = set
+
+        XCTAssertFalse(set.assignSequence(.init(.init(key: "Return")), to: .copySelectedItem))
+        XCTAssertEqual(set, original)
+    }
+
+    func testKeyBindingSetLeavesBothCommandsUnchangedWhenMoveConflicts() {
+        var set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [.init(.init(key: "S"))]),
+            KeyBindingEntry(commandID: .moveMarkedItems, sequences: [.init([.init(key: "S"), .init(key: "F")])])
+        ])
+        let original = set
+
+        XCTAssertFalse(set.moveSequence(.init(.init(key: "S")), from: .copyMarkedItems, to: .moveMarkedItems))
+        XCTAssertEqual(set, original)
+    }
+
+    func testKeyBindingSearchIncludesLongerSequences() {
+        let set = KeyBindingSet(entries: [
+            KeyBindingEntry(commandID: .copyMarkedItems, sequences: [.init([.init(key: "S"), .init(key: "F")])]),
+            KeyBindingEntry(commandID: .moveMarkedItems, sequences: [.init(.init(key: "M"))])
+        ])
+
+        XCTAssertEqual(set.bindings(startingWith: [.init(key: "S")]).map(\.commandID), [.copyMarkedItems])
+        XCTAssertEqual(set.bindings(startingWith: [.init(key: "S")]).map(\.sequence),
+                       [.init([.init(key: "S"), .init(key: "F")])])
     }
 
     func testKeyBindingSetDetectsJumpPathListBindingAsPrefixConflict() {

@@ -5,7 +5,7 @@ set -e
 
 APP_NAME="Antlers"
 APP_BUNDLE_IDENTIFIER="io.github.fukurozuno.antlers"
-APP_VERSION="0.6.0"
+APP_VERSION="0.7.0"
 APP_BUILD_VERSION="1"
 BUILD_DIR=".build/release"
 APP_DIR="${APP_NAME}.app"

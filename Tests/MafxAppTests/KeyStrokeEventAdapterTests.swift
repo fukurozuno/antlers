@@ -40,6 +40,14 @@ final class KeyStrokeEventAdapterTests: XCTestCase {
         )
     }
 
+    func testQuestionMarkUsesDisplayedCharacterForKeymapResolution() {
+        let event = makeKeyEvent(modifierFlags: [.shift], characters: "?", charactersIgnoringModifiers: "/")
+        XCTAssertEqual(KeyStroke(event: event), KeyStroke(key: "?", modifiers: .shift))
+        if let stroke = KeyStroke(event: event) {
+            XCTAssertEqual(KeymapResolver(keyBindingSet: .default).resolve(stroke), .matched(.showCommandPalette))
+        }
+    }
+
     func testIncrementalSearchInputAcceptsASCIICharactersAndShift() {
         XCTAssertEqual(
             IncrementalSearchInput.text(from: makeKeyEvent(characters: "A")),

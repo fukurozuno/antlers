@@ -9,6 +9,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
     private enum Key {
         static let showsHiddenFiles = "settings.showsHiddenFiles"
         static let incrementalSearchPriority = "settings.incrementalSearchPriority"
+        static let showsCommandPaletteButton = "settings.showsCommandPaletteButton"
         static let showsPreviewPane = "settings.showsPreviewPane"
         static let previewPanePosition = "settings.previewPanePosition"
         static let previewPaneWidthRatio = "settings.previewPaneWidthRatio"
@@ -66,6 +67,10 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
             incrementalSearchPriority: bool(
                 forKey: Key.incrementalSearchPriority,
                 defaultValue: defaultSettings.incrementalSearchPriority
+            ),
+            showsCommandPaletteButton: bool(
+                forKey: Key.showsCommandPaletteButton,
+                defaultValue: defaultSettings.showsCommandPaletteButton
             ),
             showsPreviewPane: bool(forKey: Key.showsPreviewPane, defaultValue: defaultSettings.showsPreviewPane),
             usesAlternatingRowBackgrounds: bool(
@@ -183,6 +188,7 @@ public final class UserDefaultsSettingsRepository: SettingsRepository {
     public func save(_ settings: AppSettings) {
         userDefaults.set(settings.showsHiddenFiles, forKey: Key.showsHiddenFiles)
         userDefaults.set(settings.incrementalSearchPriority, forKey: Key.incrementalSearchPriority)
+        userDefaults.set(settings.showsCommandPaletteButton, forKey: Key.showsCommandPaletteButton)
         userDefaults.set(settings.showsPreviewPane, forKey: Key.showsPreviewPane)
         userDefaults.set(settings.previewPanePosition.rawValue, forKey: Key.previewPanePosition)
         userDefaults.set(settings.previewPaneWidthRatio, forKey: Key.previewPaneWidthRatio)

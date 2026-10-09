@@ -153,7 +153,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        settingsWindowController.presentAsSheet(for: mainWindow)
+        let commandID = (sender as? Notification)?.userInfo?["commandID"] as? CommandID
+        settingsWindowController.presentAsSheet(for: mainWindow, focusedCommandID: commandID)
+    }
+
+    @objc func showCommandPalette(_ sender: Any?) {
+        (windowController?.window?.contentViewController as? DualPaneViewController)?.showCommandPaletteAction(sender)
     }
 
     @objc func showAboutPanel(_ sender: Any?) {
@@ -186,6 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if let incrementalSearchPriority = notification.userInfo?[SettingsNotificationKey.incrementalSearchPriority] as? Bool {
             appSettings.incrementalSearchPriority = incrementalSearchPriority
+        }
+        if let showsButton = notification.userInfo?[SettingsNotificationKey.showsCommandPaletteButton] as? Bool {
+            appSettings.showsCommandPaletteButton = showsButton
+            windowController?.setCommandPaletteButtonVisible(showsButton)
         }
 
         if let usesAlternatingRowBackgrounds = notification.userInfo?[SettingsNotificationKey.usesAlternatingRowBackgrounds] as? Bool {
@@ -405,6 +414,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
+        let helpMenuItem = NSMenuItem()
+        let helpMenu = NSMenu(title: L10n.string("app.menu.help"))
+        helpMenu.addItem(withTitle: L10n.string("commandPalette.title"),
+                         action: #selector(showCommandPalette(_:)), keyEquivalent: "").target = self
+        helpMenuItem.submenu = helpMenu
+        mainMenu.addItem(helpMenuItem)
+
         return mainMenu
     }
 
@@ -434,6 +450,7 @@ enum SettingsNotificationKey {
     static let filePatternHistory = "filePatternHistory"
     static let showsHiddenFiles = "showsHiddenFiles"
     static let incrementalSearchPriority = "incrementalSearchPriority"
+    static let showsCommandPaletteButton = "showsCommandPaletteButton"
     static let showsPreviewPane = "showsPreviewPane"
     static let previewPanePosition = "previewPanePosition"
     static let previewPaneWidthRatio = "previewPaneWidthRatio"

@@ -19,6 +19,10 @@ enum L10n {
         localizedBundle.localizedString(forKey: key, value: nil, table: nil)
     }
 
+    static func englishString(_ key: String) -> String {
+        fallbackBundle.localizedString(forKey: key, value: nil, table: nil)
+    }
+
     static func format(_ key: String, _ arguments: CVarArg...) -> String {
         String(format: string(key), locale: Locale.current, arguments: arguments)
     }
@@ -176,5 +180,25 @@ extension SortDirection {
 extension FileSortDescriptor {
     var localizedDisplayText: String {
         "\(criterion.localizedDisplayName) \(direction.localizedDisplaySymbol)"
+    }
+}
+
+/// 検索対象は表示言語と英語。言語設定を一時的に切り替えずに英語リソースを取得する。
+enum CommandPaletteCatalog {
+    static func item(for commandID: CommandID, bindings: [String]) -> CommandPaletteItem {
+        let keywordKey = "commandPalette.keywords.\(commandID.rawValue)"
+        func keywords(_ value: String) -> [String] {
+            value == keywordKey ? [] : value.split(separator: ",").map {
+                String($0).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return CommandPaletteItem(
+            commandID: commandID, title: commandID.localizedTitle,
+            category: commandID.category.localizedTitle,
+            keywords: keywords(L10n.string(keywordKey)), bindings: bindings,
+            englishTitle: L10n.englishString(commandID.localizationKey),
+            englishCategory: L10n.englishString(commandID.category.localizationKey),
+            englishKeywords: keywords(L10n.englishString(keywordKey))
+        )
     }
 }

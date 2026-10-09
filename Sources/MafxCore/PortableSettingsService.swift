@@ -122,6 +122,7 @@ private struct PortableSettingsDocument: Codable {
 private struct PortableSettingsV1: Codable {
     var showsHiddenFiles: Bool?
     var incrementalSearchPriority: Bool?
+    var showsCommandPaletteButton: Bool?
     var showsPreviewPane: Bool?
     var usesAlternatingRowBackgrounds: Bool?
     var showsFileIcons: Bool?
@@ -156,6 +157,7 @@ private struct PortableSettingsV1: Codable {
     init(state: SettingsState) {
         showsHiddenFiles = state.showsHiddenFiles
         incrementalSearchPriority = state.incrementalSearchPriority
+        showsCommandPaletteButton = state.showsCommandPaletteButton
         showsPreviewPane = state.showsPreviewPane
         usesAlternatingRowBackgrounds = state.usesAlternatingRowBackgrounds
         showsFileIcons = state.showsFileIcons
@@ -192,6 +194,7 @@ private struct PortableSettingsV1: Codable {
         SettingsState(
             showsHiddenFiles: showsHiddenFiles ?? defaultState.showsHiddenFiles,
             incrementalSearchPriority: incrementalSearchPriority ?? defaultState.incrementalSearchPriority,
+            showsCommandPaletteButton: showsCommandPaletteButton ?? defaultState.showsCommandPaletteButton,
             showsPreviewPane: showsPreviewPane ?? defaultState.showsPreviewPane,
             usesAlternatingRowBackgrounds: usesAlternatingRowBackgrounds
                 ?? defaultState.usesAlternatingRowBackgrounds,

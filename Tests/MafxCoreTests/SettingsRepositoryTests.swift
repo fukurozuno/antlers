@@ -19,6 +19,15 @@ final class SettingsRepositoryTests: XCTestCase {
         super.tearDown()
     }
 
+    func testCommandPaletteButtonVisibilityRoundTrips() {
+        let repository = UserDefaultsSettingsRepository(userDefaults: userDefaults)
+        var settings = AppSettings()
+        XCTAssertTrue(settings.showsCommandPaletteButton)
+        settings.showsCommandPaletteButton = false
+        repository.save(settings)
+        XCTAssertFalse(repository.load().showsCommandPaletteButton)
+    }
+
     func testLoadReturnsDefaultSettingsWhenUserDefaultsIsEmpty() {
         let defaultSettings = AppSettings(
             showsHiddenFiles: true,

@@ -33,7 +33,7 @@ Keybindings can be changed in Settings.
 | --- | --- |
 | `Space` | マークを切り替え、次へ移動 / Toggle the mark and move forward |
 | `Shift+Space` | マークを切り替え、前へ移動 / Toggle the mark and move backward |
-| `Control+Space` | 直前のマークから現在位置までマーク / Mark from the previous mark to the current position |
+| `Shift+Control+Space` | 直前のマークから現在位置までマーク / Mark from the previous mark to the current position |
 | `End` | マークをすべて解除して再探索 / Clear all marks and reload the list |
 | `A` | 表示中ファイルのマークを反転 / Invert marks for visible files |
 | `Shift+A` | 表示中ファイルとディレクトリのマークを反転 / Invert marks for visible files and directories |
@@ -74,7 +74,8 @@ Keybindings can be changed in Settings.
 | --- | --- |
 | `O` | アクティブペインを逆窓のパスへ同期 / Sync the active pane to the opposite pane |
 | `Shift+O` | 逆窓をアクティブペインのパスへ同期 / Sync the opposite pane to the active pane |
-| `_` / `Shift+_` | コンテキストメニューを表示 / Show the context menu |
+| `/` | 操作メニューを表示 / Show the operation menu |
+| `Shift+?` / `Command+Shift+P` | コマンドパレットを表示 / Show the command palette |
 | `Z` | 設定ウィンドウを開く / Open Settings |
 | `Command+,` | 設定ウィンドウを開く / Open Settings |
 | `Q` | アプリケーションを終了 / Quit the application |
@@ -94,9 +95,17 @@ Keybindings can be changed in Settings.
 
 設定画面の Keybindings で、コマンドごとに複数のキー列を登録できます。
 `S, F` のような複数ストロークのキー列にも対応しています。
+機能名やキーワードで検索でき、「キーから検索」では実際にキー列を入力して割り当てを調べられます。割り当て済みのキーは別の機能へ移動または解除でき、未割り当てのキーには機能を割り当てられます。変更は設定画面の OK で保存します。
 
 In Settings → Keybindings, multiple key sequences can be assigned to each command,
 including multi-stroke sequences such as `S, F`.
+Search by command name or keyword, or use **Search by key** to enter a sequence and inspect its assignment. You can reassign or remove an assigned sequence, and assign an available sequence. Click OK in Settings to save changes.
+
+## コマンドパレット / Command Palette
+
+`Shift+?` または `Command+Shift+P` で開きます。ウィンドウ上部の `?` ボタンやヘルプメニューからも開けます。機能名、キーワード、キーで検索し、上下キーで選んで `Return` で実行します。`Esc` で閉じます。選択中の機能から「キー設定を開く」を選ぶと、その機能のキー設定へ移動できます。
+
+Open with `Shift+?` or `Command+Shift+P`, the `?` title-bar button, or the Help menu. Search by command name, keyword, or key; use Up/Down and `Return` to run a command, or `Esc` to close. **Open Keybindings** jumps to the selected command's shortcut settings.
 
 ## 複数ストローク入力中の候補 / Multi-stroke Candidates
 
